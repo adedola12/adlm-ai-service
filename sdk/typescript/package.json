@@ -1,0 +1,11 @@
+{
+  "name": "@adlm/ai-sdk",
+  "version": "0.1.0",
+  "description": "ADLM AI Service client SDK for ADLM Cloud web",
+  "type": "module",
+  "main": "src/index.js",
+  "types": "src/index.d.ts",
+  "files": ["src"],
+  "license": "UNLICENSED",
+  "private": true
+}
