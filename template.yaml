@@ -1,0 +1,93 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: ADLM AI Service - serverless AI API for the ADLM product suite
+
+Globals:
+  Function:
+    Timeout: 120
+    MemorySize: 1024
+    Runtime: nodejs20.x
+
+Parameters:
+  MongoUri:
+    Type: String
+    NoEcho: true
+  JwtLicenseSecret:
+    Type: String
+    NoEcho: true
+    Default: ""
+  JwtAccessSecret:
+    Type: String
+    NoEcho: true
+    Default: ""
+  AdminApiKey:
+    Type: String
+    NoEcho: true
+  AlarmEmail:
+    Type: String
+    Default: dolapo836@gmail.com
+
+Resources:
+  AiServiceFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: adlm-ai-service
+      Handler: src/lambda.handler
+      Environment:
+        Variables:
+          MONGO_URI: !Ref MongoUri
+          AI_DB: adlm_ai
+          JWT_LICENSE_SECRET: !Ref JwtLicenseSecret
+          JWT_ACCESS_SECRET: !Ref JwtAccessSecret
+          ADMIN_API_KEY: !Ref AdminApiKey
+          ADLM_CLOUD_URL: https://adlmweb.onrender.com
+          BEDROCK_MODEL_CHEAP: anthropic.claude-haiku-4-5
+          BEDROCK_MODEL_STRONG: anthropic.claude-sonnet-5
+          CREDIT_TOTAL_USD: "25000"
+          CREDIT_EXPIRY_DATE: "2028-07-31"
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
+              Resource: "*"
+            - Effect: Allow
+              Action:
+                - textract:AnalyzeDocument
+              Resource: "*"
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            Path: /{proxy+}
+            Method: ANY
+
+  AlarmTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref AlarmEmail
+
+  # Drift alarms — the credit guard caps disasters; these catch drift early.
+  ErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: adlm-ai-service Lambda errors
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref AiServiceFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref AlarmTopic
+
+Outputs:
+  ApiUrl:
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com"
