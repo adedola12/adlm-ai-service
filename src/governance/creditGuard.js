@@ -44,8 +44,12 @@ export async function creditStatus(force = false) {
   const budgetDaily = acct.totalUsd / totalDays;
   const burnRatio = budgetDaily > 0 ? dailyBurn / budgetDaily : 0;
   const runwayDays = dailyBurn > 0 ? remainingUsd / dailyBurn : Infinity;
+  // If burn is so low the credit outlives its own expiry (or overflows the
+  // Date range), the effective runway end is the expiry date itself.
   const runwayDate =
-    dailyBurn > 0 ? new Date(now.getTime() + runwayDays * 86400000) : acct.expiryDate;
+    Number.isFinite(runwayDays) && runwayDays < 36500
+      ? new Date(Math.min(now.getTime() + runwayDays * 86400000, acct.expiryDate.getTime() + 366 * 86400000))
+      : acct.expiryDate;
 
   // Last-24h spend for the daily alarm.
   const dayAgo = new Date(now.getTime() - 86400000);

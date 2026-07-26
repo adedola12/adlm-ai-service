@@ -1,11 +1,20 @@
 import { AnthropicBedrockMantle } from "@anthropic-ai/bedrock-sdk";
+import Anthropic from "@anthropic-ai/sdk";
 import { config } from "../config/index.js";
 import { meterAiCall } from "../governance/meterAiCall.js";
 
-// Single Bedrock entry point. There is deliberately NO unmetered invoke —
+// Single model-call entry point. There is deliberately NO unmetered invoke —
 // every model call flows through meterAiCall by construction.
-// AWS credentials come from the Lambda execution role (or env in local dev).
-const client = new AnthropicBedrockMantle({ awsRegion: config.awsRegion });
+//
+// Providers: "bedrock" (production — AWS credentials from the Lambda role or
+// env) or "anthropic" (direct API fallback; same Claude models, same unit
+// prices, so metering and the PricingRate store are unchanged — model ids are
+// recorded in Bedrock form and the "anthropic." prefix is stripped only for
+// the direct API call).
+const direct = config.aiProvider === "anthropic";
+const client = direct
+  ? new Anthropic({ apiKey: config.anthropicApiKey })
+  : new AnthropicBedrockMantle({ awsRegion: config.awsRegion });
 
 function extractText(message) {
   return (message.content || [])
@@ -28,10 +37,10 @@ function parseJsonLoose(text) {
 // Returns { json, modelId, costUsd }.
 export async function invokeJson(meta, { modelId, system, user, maxTokens = 2048 }) {
   const { result, costUsd } = await meterAiCall(
-    { ...meta, service: "bedrock", model: modelId },
+    { ...meta, service: "bedrock", model: modelId, operation: direct ? `${meta.operation || ""}@direct` : meta.operation },
     async () => {
       const message = await client.messages.create({
-        model: modelId,
+        model: direct ? modelId.replace(/^anthropic\./, "") : modelId,
         max_tokens: maxTokens,
         system: `${system}\nRespond with a single JSON object only. No prose, no markdown fences.`,
         messages: [{ role: "user", content: user }],

@@ -13,6 +13,10 @@ export const config = {
   rategenLabCollection: process.env.RATEGEN_LAB_COLLECTION || "labours",
 
   awsRegion: process.env.AWS_REGION || "us-east-1",
+  // "bedrock" (production — AWS credit) or "anthropic" (direct API fallback
+  // while Bedrock model access is being unblocked). Same models, same prices.
+  aiProvider: (process.env.AI_PROVIDER || "bedrock").toLowerCase(),
+  anthropicApiKey: process.env.ANTHROPIC_API_KEY || "",
   models: {
     cheap: process.env.BEDROCK_MODEL_CHEAP || "anthropic.claude-haiku-4-5",
     strong: process.env.BEDROCK_MODEL_STRONG || "anthropic.claude-sonnet-5",
