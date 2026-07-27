@@ -37,6 +37,10 @@ namespace AdlmAi
 
         internal static AiResult<T> Of(AiStatus status, string message = null) =>
             new AiResult<T> { Status = status, Message = message };
+
+        /// <summary>Public factory for hosts that need a local not-configured result.</summary>
+        public static AiResult<T> Unavailable(string message) =>
+            new AiResult<T> { Status = AiStatus.Unavailable, Message = message };
     }
 
     public sealed class AiAudit

@@ -68,6 +68,16 @@ namespace AdlmAi
                 progress, ct);
         }
 
+        public Task<AiResult<TakeoffCommandResult>> TakeoffCommandAsync(
+            string prompt, TakeoffCommandContext context,
+            IProgress<string> progress = null, CancellationToken ct = default)
+        {
+            return PostAsync<TakeoffCommandResult>(
+                "/api/ai/takeoff-command",
+                new Dictionary<string, object> { { "prompt", prompt }, { "context", context } },
+                progress, ct);
+        }
+
         public Task<AiResult<CatalogueResult>> CatalogueExtractAsync(
             IEnumerable<CataloguePage> pages,
             IEnumerable<string> taxonomy = null,

@@ -1,4 +1,9 @@
-import "dotenv/config";
+// Load .env from the repo root regardless of the process working directory
+// (local dev may launch from a parent folder; Lambda has no .env and no-ops).
+import { config as loadEnv } from "dotenv";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+loadEnv({ path: join(dirname(fileURLToPath(import.meta.url)), "..", "..", ".env") });
 
 const num = (v, d) => (v !== undefined && v !== "" ? Number(v) : d);
 
@@ -46,6 +51,7 @@ export const config = {
     boqCheck: 2,
     outliers: 1,
     catalogueExtract: 5,
+    takeoffCommand: 1,
   },
   // Features throttled first when the credit guard trips. boqCheck and
   // rateBuildup are the paid headline features and stay up the longest.

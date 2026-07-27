@@ -4,6 +4,7 @@ import { rateBuildup } from "../services/rateBuildupService.js";
 import { boqCheck } from "../services/boqCheckService.js";
 import { detectOutliers } from "../services/outlierService.js";
 import { catalogueExtract } from "../services/catalogueService.js";
+import { takeoffCommand } from "../services/takeoffCommandService.js";
 
 const router = Router();
 router.use(requireAiEntitlement);
@@ -54,6 +55,18 @@ router.post("/catalogue/extract", async (req, res, next) => {
     res.json(
       await catalogueExtract({ tenantId: req.tenantId, product: req.product, pages, taxonomy, templateColumns })
     );
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/takeoff-command", async (req, res, next) => {
+  try {
+    const { prompt, context } = req.body || {};
+    if (!prompt || typeof prompt !== "string") {
+      return res.status(400).json({ error: "prompt is required", code: "BAD_INPUT" });
+    }
+    res.json(await takeoffCommand({ tenantId: req.tenantId, product: req.product, prompt, context }));
   } catch (err) {
     next(err);
   }

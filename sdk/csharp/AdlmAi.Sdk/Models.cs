@@ -105,6 +105,33 @@ namespace AdlmAi
         [JsonPropertyName("source")] public string Source { get; set; }
     }
 
+    // ── Takeoff command (QUIV natural-language assistant) ───────────────────
+
+    public sealed class TakeoffCommandContext
+    {
+        [JsonPropertyName("modules")] public List<string> Modules { get; set; }
+        [JsonPropertyName("levels")] public List<string> Levels { get; set; }
+        [JsonPropertyName("automatable")] public List<string> Automatable { get; set; }
+    }
+
+    public sealed class TakeoffCommandResult
+    {
+        [JsonPropertyName("actions")] public List<TakeoffAction> Actions { get; set; }
+        [JsonPropertyName("saveTo")] public List<string> SaveTo { get; set; }
+        [JsonPropertyName("reply")] public string Reply { get; set; }
+        [JsonPropertyName("unsupported")] public List<string> Unsupported { get; set; }
+    }
+
+    public sealed class TakeoffAction
+    {
+        /// <summary>Exact module key from the supplied context (e.g. "BeamQty").</summary>
+        [JsonPropertyName("module")] public string Module { get; set; }
+        /// <summary>Exact level name from the supplied context, or "All Floors".</summary>
+        [JsonPropertyName("level")] public string Level { get; set; }
+        [JsonPropertyName("type")] public string Type { get; set; }
+        [JsonPropertyName("automatable")] public bool Automatable { get; set; }
+    }
+
     // ── Catalogue ───────────────────────────────────────────────────────────
 
     public sealed class CatalogueResult

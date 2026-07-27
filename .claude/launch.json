@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "ai-service", "runtimeExecutable": "node", "runtimeArgs": ["src/local.js"], "port": 5100 }
+  ]
+}
