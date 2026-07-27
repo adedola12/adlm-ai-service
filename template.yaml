@@ -23,6 +23,15 @@ Parameters:
   AdminApiKey:
     Type: String
     NoEcho: true
+  AiProvider:
+    Type: String
+    Default: anthropic
+    AllowedValues: [anthropic, bedrock]
+    Description: anthropic = direct API fallback until Bedrock model access is unblocked; then switch to bedrock.
+  AnthropicApiKey:
+    Type: String
+    NoEcho: true
+    Default: ""
   AlarmEmail:
     Type: String
     Default: dolapo836@gmail.com
@@ -40,6 +49,8 @@ Resources:
           JWT_LICENSE_SECRET: !Ref JwtLicenseSecret
           JWT_ACCESS_SECRET: !Ref JwtAccessSecret
           ADMIN_API_KEY: !Ref AdminApiKey
+          AI_PROVIDER: !Ref AiProvider
+          ANTHROPIC_API_KEY: !Ref AnthropicApiKey
           ADLM_CLOUD_URL: https://adlmweb.onrender.com
           BEDROCK_MODEL_CHEAP: anthropic.claude-haiku-4-5
           BEDROCK_MODEL_STRONG: anthropic.claude-sonnet-5
