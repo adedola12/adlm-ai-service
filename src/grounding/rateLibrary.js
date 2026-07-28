@@ -139,7 +139,7 @@ export async function findComputeItems() {
 // ── Zone-aware master price lookups ─────────────────────────────────────────
 // Materials/labours carry a `zone` field (six Nigerian zones). Zone-matched
 // prices win; rows without a matching zone are the fallback.
-export async function findPrices(names, kind = "material", zone = null) {
+export async function findPrices(names, kind = "material", zone = null, minScore = 0.3) {
   const db = await rategenMasterDb();
   const coll = kind === "labour" ? config.rategenLabCollection : config.rategenMatCollection;
   const nameField = kind === "labour" ? "LabourName" : "MaterialName";
@@ -165,7 +165,7 @@ export async function findPrices(names, kind = "material", zone = null) {
         score: scoreMatch(tokens, r[nameField]) + (normZone && r.zone === normZone ? 0.25 : 0),
       }))
       .sort((a, b) => b.score - a.score);
-    if (scored.length && scored[0].score > 0.3) {
+    if (scored.length && scored[0].score >= minScore) {
       const r = scored[0].row;
       results.push({
         query: name,

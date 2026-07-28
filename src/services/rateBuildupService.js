@@ -75,34 +75,44 @@ Return JSON:
   "confidence": 0.0
 }`;
 
-async function buildFromLibrary(rate, zone) {
-  const components = rate.breakdown.map((b) => ({
-    kind: b.refKind || "material",
-    name: b.componentName,
-    quantity: b.quantity,
-    unit: b.unit,
-    unitPriceNgn: b.unitPrice,
-    source: "library",
-    libraryRef: rate.code || rate.description,
-  }));
+const SUBTOTAL_LINE = /^\s*(sub-?total|total)\b/i;
+const ALLOWANCE_LINE = /^\s*(add\s+for|allow)\b/i;
 
-  // Zone repricing: swap each component's price for the zone-matched master
-  // price where one exists; the item's stored price is the fallback.
+async function buildFromLibrary(rate, zone) {
+  // Master breakdowns mix real components with subtotal and allowance rows.
+  // Subtotals are dropped (they duplicate value); allowance rows keep their
+  // stored totals and are never repriced; stored TotalPrice is the source of
+  // truth for every line unless a confident zone reprice replaces it.
+  const components = rate.breakdown
+    .filter((b) => !SUBTOTAL_LINE.test(String(b.componentName || "")))
+    .map((b) => ({
+      kind: ALLOWANCE_LINE.test(String(b.componentName || "")) ? "allowance" : b.refKind || "material",
+      name: b.componentName,
+      quantity: b.quantity,
+      unit: b.unit,
+      unitPriceNgn: b.unitPrice,
+      totalNgn: round2(b.totalPrice ?? (b.quantity || 0) * (b.unitPrice || 0)),
+      source: "library",
+      libraryRef: rate.code || rate.description,
+    }));
+
+  // Zone repricing — strict matches only (score >= 0.6), clean components only.
   if (zone) {
+    const repriceable = components.filter((c) => c.kind === "material" || c.kind === "labour");
     const [mats, labs] = await Promise.all([
-      findPrices(components.filter((c) => c.kind === "material").map((c) => c.name), "material", zone),
-      findPrices(components.filter((c) => c.kind === "labour").map((c) => c.name), "labour", zone),
+      findPrices(repriceable.filter((c) => c.kind === "material").map((c) => c.name), "material", zone, 0.6),
+      findPrices(repriceable.filter((c) => c.kind === "labour").map((c) => c.name), "labour", zone, 0.6),
     ]);
     const priceMap = new Map([...mats, ...labs].map((p) => [p.query, p]));
     for (const c of components) {
       const hit = priceMap.get(c.name);
-      if (hit && hit.priceNgn > 0 && hit.zone === zone) {
+      if (hit && hit.priceNgn > 0 && hit.zone === zone && (c.quantity || 0) > 0) {
         c.unitPriceNgn = hit.priceNgn;
+        c.totalNgn = round2(c.quantity * hit.priceNgn);
         c.pricedZone = zone;
       }
     }
   }
-  for (const c of components) c.totalNgn = round2((c.quantity || 0) * (c.unitPriceNgn || 0));
 
   return totalize({
     unit: rate.unit,
@@ -110,7 +120,7 @@ async function buildFromLibrary(rate, zone) {
     components,
     overheadPercent: rate.overheadPercent ?? 10,
     profitPercent: rate.profitPercent ?? 25,
-    notes: `Matched library rate: ${rate.description}${zone ? ` (component prices for ${zone})` : ""}`,
+    notes: `Matched library rate: ${rate.description}${zone ? ` (zone prices applied where matched: ${zone})` : ""}`,
     librarySource: rate.code || rate.description,
   });
 }
