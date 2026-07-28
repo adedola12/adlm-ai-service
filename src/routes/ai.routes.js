@@ -6,6 +6,8 @@ import { detectOutliers } from "../services/outlierService.js";
 import { catalogueExtract } from "../services/catalogueService.js";
 import { takeoffCommand } from "../services/takeoffCommandService.js";
 import { budgetMatch } from "../services/budgetMatchService.js";
+import { billCleanup } from "../services/billCleanupService.js";
+import { billAsk } from "../services/billAskService.js";
 
 const router = Router();
 router.use(requireAiEntitlement);
@@ -80,6 +82,36 @@ router.post("/budget-match", async (req, res, next) => {
       return res.status(400).json({ error: "rows[] and candidates[] are required", code: "BAD_INPUT" });
     }
     res.json(await budgetMatch({ tenantId: req.tenantId, product: req.product, rows, candidates }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Bill clean-up: descriptions, units, duplicates, coverage gaps. Rates are NOT
+// handled here — callers wanting a rate opinion hit /boq-check, which benchmarks
+// against the RateGen library instead of asking a model.
+router.post("/bill-cleanup", async (req, res, next) => {
+  try {
+    const { items, zone, checks } = req.body || {};
+    if (!Array.isArray(items) || !items.length) {
+      return res.status(400).json({ error: "items[] is required", code: "BAD_INPUT" });
+    }
+    res.json(await billCleanup({ tenantId: req.tenantId, product: req.product, items, zone, checks }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/bill-ask", async (req, res, next) => {
+  try {
+    const { question, items, currencyCode } = req.body || {};
+    if (!question || typeof question !== "string") {
+      return res.status(400).json({ error: "question is required", code: "BAD_INPUT" });
+    }
+    if (!Array.isArray(items) || !items.length) {
+      return res.status(400).json({ error: "items[] is required", code: "BAD_INPUT" });
+    }
+    res.json(await billAsk({ tenantId: req.tenantId, product: req.product, question, items, currencyCode }));
   } catch (err) {
     next(err);
   }

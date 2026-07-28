@@ -16,6 +16,10 @@ const TASK_TIERS = {
   // gate still routes genuinely hard items to the flagship model.
   rateReasoning: "cheap",
   catalogueMapping: "cheap",
+  // Bill wording is what the client reads most closely, so this escalates on a
+  // low-confidence batch (see billCleanupService) rather than shipping vague
+  // rewrites — but it starts cheap like everything else.
+  billCleanup: "cheap",
 };
 
 export const ESCALATION_CONFIDENCE_THRESHOLD = 0.6;
