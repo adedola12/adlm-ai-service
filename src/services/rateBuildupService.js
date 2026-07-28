@@ -1,5 +1,5 @@
 import { invokeJson } from "../clients/bedrock.js";
-import { pickModel } from "../governance/modelRouter.js";
+import { pickModel, withEscalation } from "../governance/modelRouter.js";
 import { findCandidateRates, findComputeItems, findPrices, NIGERIAN_ZONES } from "../grounding/rateLibrary.js";
 import { runFeature } from "./featurePipeline.js";
 
@@ -33,25 +33,44 @@ export async function rateBuildup({ tenantId, product, description, zone, unit }
       }
 
       // Model assembles the build-up, grounded in the candidates + recipes.
-      const { modelId } = pickModel("rateReasoning");
-      const { json } = await invokeJson(
-        { tenantId, product, feature: "rateBuildup", operation: "assemble" },
-        {
-          modelId,
-          maxTokens: 3000,
-          system: SYSTEM_PROMPT,
-          user: JSON.stringify({
-            workItem: { description, unit: unit || null, zone: normZone },
-            libraryCandidates: candidates,
-            libraryRecipes: recipes,
-          }),
+      //
+      // Cheap tier FIRST, escalating to the strong tier only when the cheap
+      // model reports low confidence. This is the single biggest latency lever
+      // on this endpoint: measured on the same build-up, the strong tier took
+      // 16-30s versus ~6s cheap, because the cost is OUTPUT generation (a full
+      // JSON build-up), not reasoning depth — trimming the prompt from 4.1k to
+      // 1.3k tokens changed nothing. Quality was comparable on the A/B (cheap:
+      // 7 components, all library-priced, confidence 0.85, net N15,449;
+      // strong: 5 components, all library-priced, confidence 0.82, net
+      // N14,851 — 4% apart), and the escalation gate catches the cases where
+      // it is not.
+      const user = JSON.stringify({
+        workItem: { description, unit: unit || null, zone: normZone },
+        libraryCandidates: candidates,
+        libraryRecipes: recipes,
+      });
+
+      const { result: json, confidence, modelId, escalated } = await withEscalation(
+        "rateReasoning",
+        async (id) => {
+          const { json: out } = await invokeJson(
+            {
+              tenantId,
+              product,
+              feature: "rateBuildup",
+              operation: "assemble",
+              ...(id === pickModel("rateReasoning", { escalate: true }).modelId ? { escalated: true } : {}),
+            },
+            { modelId: id, maxTokens: 3000, system: SYSTEM_PROMPT, user }
+          );
+          return { result: out, confidence: out.confidence ?? 0.5 };
         }
       );
 
       // Re-price model-proposed components against the zone-priced master
       // lists so library prices win over model guesses wherever a match exists.
       const result = await repriceComponents(json, candidates, normZone);
-      return { model: modelId, confidence: json.confidence ?? 0.5, result };
+      return { model: modelId, confidence, result: { ...result, escalated } };
     },
   });
 }

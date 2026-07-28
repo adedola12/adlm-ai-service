@@ -8,7 +8,13 @@ const TASK_TIERS = {
   extraction: "cheap",
   outlierScan: "cheap",
   boqVerdict: "cheap", // escalates per-item batch when confidence is low
-  rateReasoning: "strong", // rate build-up gaps need real reasoning; flagship quality
+  // Rate build-ups run cheap-first and escalate on low confidence (see
+  // withEscalation + rateBuildupService). Pinning this to "strong" cost
+  // 16-30s per uncached build-up versus ~6s, because the time goes into
+  // generating the JSON build-up rather than into reasoning depth — and the
+  // A/B produced comparable component sets and confidences. The escalation
+  // gate still routes genuinely hard items to the flagship model.
+  rateReasoning: "cheap",
   catalogueMapping: "cheap",
 };
 

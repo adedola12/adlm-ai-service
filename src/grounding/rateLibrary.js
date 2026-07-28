@@ -35,17 +35,32 @@ const LABOUR_HINTS = /labour|workmanship|mason|carpenter|iron\s*bender|welder|fi
 
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+// Short tokens are usually noise ("in", "to", "of") EXCEPT numbers, which are
+// the most discriminating part of a QS description: grade 10 vs grade 25,
+// 1:4:8 vs 1:2:4, 12mm vs 20mm. Dropping them made "Grade 25 concrete in
+// foundation" score a perfect 1.0 against "Concrete (1:4:8) grade 10 in
+// foundation or slab" — a wrong build-up served as a library match. Numbers of
+// any length are kept.
 function tokenize(description) {
   return String(description || "")
     .toLowerCase()
     .split(/[^a-z0-9]+/)
-    .filter((t) => t.length > 2);
+    .filter((t) => t.length > 2 || /^\d+$/.test(t));
 }
 
 function scoreMatch(tokens, text) {
   const hay = String(text || "").toLowerCase();
   let hits = 0;
-  for (const t of tokens) if (hay.includes(t)) hits++;
+  for (const t of tokens) {
+    if (/^\d+$/.test(t)) {
+      // A number must stand alone, so "25" does not count as found inside
+      // "125mm" or "1:2:5". Digit-boundary, not \b, because \b would still
+      // let "25" match the "25" in "125".
+      if (new RegExp(`(?<!\\d)${t}(?!\\d)`).test(hay)) hits++;
+    } else if (hay.includes(t)) {
+      hits++;
+    }
+  }
   return tokens.length ? hits / tokens.length : 0;
 }
 
@@ -80,23 +95,64 @@ export async function libraryVersion() {
 // Description, Unit, NetCost, OverheadValue, ProfitValue, TotalCost, and a
 // breakdown array (field name varies per trade: BreakdownLines,
 // BlockworkBreakdownLine, ...).
+// ── In-process library cache ────────────────────────────────────────────────
+// The whole build-up library is 130 documents / 0.19 MB across 8 collections,
+// yet it was re-queried per lookup: 8 Atlas round-trips (~1.1s) for every
+// build-up, and boqCheck calls this ONCE PER BILL LINE — 12 lines cost ~12.8s
+// of pure database latency before a single token was spent. It is far smaller
+// than the queries used to fetch it, so load it once and score in memory.
+//
+// Lambda containers persist between invocations, so warm calls pay nothing.
+// The TTL matches libraryVersion()'s, so a price edit is picked up on the same
+// cadence the cache keys already assume.
+const LIB_TTL_MS = 10 * 60 * 1000;
+let itemsCache = null;
+let itemsAt = 0;
+
+async function loadItems() {
+  if (itemsCache && Date.now() - itemsAt < LIB_TTL_MS) return itemsCache;
+  const db = await rategenMasterDb();
+  const all = [];
+  for (const coll of ITEM_COLLECTIONS) {
+    try {
+      const rows = await db.collection(coll).find({}).toArray();
+      for (const r of rows) all.push({ row: r, coll });
+    } catch {
+      // A missing trade collection must not take the whole library down.
+      continue;
+    }
+  }
+  // Only replace a good cache with a non-empty read, so a transient failure
+  // degrades to slightly stale data rather than to no grounding at all.
+  if (all.length || !itemsCache) {
+    itemsCache = all;
+    itemsAt = Date.now();
+  }
+  return itemsCache;
+}
+
 export async function findCandidateRates(description, { limit = 8 } = {}) {
   const tokens = tokenize(description);
   if (!tokens.length) return [];
-  const db = await rategenMasterDb();
-  const or = tokens.slice(0, 6).map((t) => ({ Description: { $regex: escapeRegex(t), $options: "i" } }));
 
+  // Same prefilter and per-collection cap as the queries this replaces (first
+  // 6 tokens OR'd, 40 rows per collection in natural order), then the same
+  // score and stable sort — so results are unchanged and only the round trips
+  // are gone.
+  const probes = tokens.slice(0, 6);
   const scored = [];
-  for (const coll of ITEM_COLLECTIONS) {
-    let rows = [];
-    try {
-      rows = await db.collection(coll).find({ $or: or }).limit(40).toArray();
-    } catch {
-      continue;
+  let currentColl = null;
+  let taken = 0;
+  for (const { row, coll } of await loadItems()) {
+    if (coll !== currentColl) {
+      currentColl = coll;
+      taken = 0;
     }
-    for (const r of rows) {
-      scored.push({ row: r, coll, score: scoreMatch(tokens, r.Description) });
-    }
+    if (taken >= 40) continue;
+    const hay = String(row.Description || "").toLowerCase();
+    if (!probes.some((t) => hay.includes(t))) continue;
+    taken += 1;
+    scored.push({ row, coll, score: scoreMatch(tokens, row.Description) });
   }
 
   return scored
@@ -139,6 +195,18 @@ export async function findComputeItems() {
 // ── Zone-aware master price lookups ─────────────────────────────────────────
 // Materials/labours carry a `zone` field (six Nigerian zones). Zone-matched
 // prices win; rows without a matching zone are the fallback.
+// NOT cached in memory, deliberately. The price lists are small enough to
+// cache (Materials 2,874 docs / 781 KB), and doing so cut this from ~1.3s to
+// ~3ms — but it also CHANGED WHICH PRICE IS RETURNED. Candidate names tie
+// constantly ("cement" scores a perfect 1.0 against "Cement (50kg bag)",
+// "Coloured Cement" and "Loading and unloading cement" alike, and each
+// material repeats across six zones), so the winner was only ever decided by
+// the order MongoDB happened to return rows in. Any reimplementation reshuffles
+// that, and a silently different unit rate is a worse outcome than a slower
+// one. The ~1.3s stays until the matching itself is fixed — see the note in
+// findCandidateRates; the tie-breaking needs to be made deliberate (exact/
+// prefix name match, non-zero price, explicit zone) before this can be a pure
+// performance change.
 export async function findPrices(names, kind = "material", zone = null, minScore = 0.3) {
   const db = await rategenMasterDb();
   const coll = kind === "labour" ? config.rategenLabCollection : config.rategenMatCollection;
