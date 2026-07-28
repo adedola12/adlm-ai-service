@@ -27,7 +27,46 @@ const SECTION_LABELS = {
   windowsAndDoor_items: ["windowsdoors", "Windows & Doors"],
 };
 const LABOUR_HINTS = /labour|workmanship|mason|carpenter|iron\s*bender|welder|fixing|placing|loading|unloading|foreman|headman|tradesman|crew|gang/i;
+const TOTALISH = /^\s*(sub-?total|total)\b/i;
+const ALLOWANCE = /^\s*(add\s+for|add\s|allow)\b/i;
 const r2 = (n) => Math.round(((Number(n) || 0) + Number.EPSILON) * 100) / 100;
+
+// A breakdown is exported ONLY when it provably follows the linear model:
+// every priced line = qty x unitPrice and the component+allowance sum matches
+// the item's NetCost. Non-linear calculator templates (six-use formwork,
+// per-day gang costs, per-sheet conversions) sum to per-BATCH figures, not
+// per-unit — deriving material/labour portions from them poisons every
+// consumer (QUIV budget decomposition, AI labour candidates: the N31,063/m2
+// formwork-labour incident). Those items serve their headline rate only.
+function linearBreakdown(rawLines, netCost) {
+  const lines = [];
+  let sum = 0;
+  for (const b of rawLines) {
+    const name = String(b.ComponentName || "");
+    const qty = Number(b.Quantity) || 0;
+    const price = Number(b.UnitPrice) || 0;
+    const stored = Number(b.TotalPrice) || 0;
+    if (TOTALISH.test(name)) continue; // display rows — never exported
+    if (ALLOWANCE.test(name) && stored > 0 && !(qty > 0 && price > 0)) {
+      sum += stored;
+      lines.push({ name, qty, unit: b.Unit || "", price, stored, kind: "material" });
+      continue;
+    }
+    if (qty > 0 && price > 0) {
+      if (Math.abs(stored - qty * price) > 1) return null;
+      sum += stored;
+      lines.push({
+        name, qty, unit: b.Unit || "", price, stored,
+        kind: LABOUR_HINTS.test(name) ? "labour" : "material",
+      });
+      continue;
+    }
+    if (Math.abs(stored) <= 0.01) continue; // empty row
+    return null; // unexplained value line — calculator template
+  }
+  if (!lines.length || Math.abs(sum - netCost) > 1) return null;
+  return lines;
+}
 
 const admin = new MongoClient(process.env.RATEGEN_MONGO_URI, { serverSelectionTimeoutMS: 15000 });
 const web = new MongoClient(process.env.MONGO_URI, { serverSelectionTimeoutMS: 15000 });
@@ -64,18 +103,21 @@ const aiMode = process.argv.indexOf("--ai");
 if (aiMode === -1) {
   // ── Mode 1: convert admin master build-ups ────────────────────────────────
   let count = 0;
+  let withBreakdown = 0;
   for (const [coll, [sectionKey, sectionLabel]] of Object.entries(SECTION_LABELS)) {
     const docs = await adminDb.collection(coll).find({}).toArray();
     for (const doc of docs) {
       const bf = Object.keys(doc).find((k) => Array.isArray(doc[k]) && doc[k].length && doc[k][0]?.ComponentName !== undefined);
-      const lines = (bf ? doc[bf] : []).map((b) => ({
-        componentName: b.ComponentName,
-        quantity: Number(b.Quantity) || 0,
-        unit: b.Unit || "",
-        unitPrice: r2(b.UnitPrice),
-        totalPrice: r2(b.TotalPrice),
-        refKind: LABOUR_HINTS.test(String(b.ComponentName || "")) ? "labour" : "material",
+      const clean = linearBreakdown(bf ? doc[bf] : [], Number(doc.NetCost) || 0);
+      const lines = (clean || []).map((l) => ({
+        componentName: l.name,
+        quantity: l.qty,
+        unit: l.unit,
+        unitPrice: r2(l.price),
+        totalPrice: r2(l.stored),
+        refKind: l.kind,
       }));
+      if (clean) withBreakdown++;
       await upsert(
         toRow({
           sectionKey,
@@ -89,13 +131,20 @@ if (aiMode === -1) {
           profit: doc.ProfitValue,
           total: doc.TotalCost,
           lines,
-          extra: { source: "admin-items", sourceCollection: coll, aiDraft: false },
+          extra: {
+            source: "admin-items",
+            sourceCollection: coll,
+            aiDraft: false,
+            // Headline-only items: calculator-template breakdowns are not
+            // per-unit-linear, so no component split is served for them.
+            breakdownOmitted: !clean,
+          },
         })
       );
       count++;
     }
   }
-  console.log(`Converted ${count} admin build-ups into rategenrates.`);
+  console.log(`Converted ${count} admin build-ups (${withBreakdown} with linear breakdowns, ${count - withBreakdown} headline-only).`);
 } else {
   // ── Mode 2: AI drafts for new work items ─────────────────────────────────
   const file = process.argv[aiMode + 1];
