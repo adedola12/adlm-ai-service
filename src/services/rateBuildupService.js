@@ -21,12 +21,14 @@ export async function rateBuildup({ tenantId, product, description, zone, unit }
       ]);
 
       // Strong exact-ish library match: return it directly, no model call.
+      // Components are re-priced against the zone's master price list so the
+      // same work item yields the correct rate per location.
       const best = candidates[0];
       if (best && best.matchScore >= 0.85 && best.breakdown?.length) {
         return {
           model: "library-only",
           confidence: 0.95,
-          result: buildFromLibrary(best, normZone),
+          result: await buildFromLibrary(best, normZone),
         };
       }
 
@@ -73,24 +75,42 @@ Return JSON:
   "confidence": 0.0
 }`;
 
-function buildFromLibrary(rate, zone) {
+async function buildFromLibrary(rate, zone) {
   const components = rate.breakdown.map((b) => ({
     kind: b.refKind || "material",
     name: b.componentName,
     quantity: b.quantity,
     unit: b.unit,
     unitPriceNgn: b.unitPrice,
-    totalNgn: b.totalPrice ?? round2((b.quantity || 0) * (b.unitPrice || 0)),
     source: "library",
     libraryRef: rate.code || rate.description,
   }));
+
+  // Zone repricing: swap each component's price for the zone-matched master
+  // price where one exists; the item's stored price is the fallback.
+  if (zone) {
+    const [mats, labs] = await Promise.all([
+      findPrices(components.filter((c) => c.kind === "material").map((c) => c.name), "material", zone),
+      findPrices(components.filter((c) => c.kind === "labour").map((c) => c.name), "labour", zone),
+    ]);
+    const priceMap = new Map([...mats, ...labs].map((p) => [p.query, p]));
+    for (const c of components) {
+      const hit = priceMap.get(c.name);
+      if (hit && hit.priceNgn > 0 && hit.zone === zone) {
+        c.unitPriceNgn = hit.priceNgn;
+        c.pricedZone = zone;
+      }
+    }
+  }
+  for (const c of components) c.totalNgn = round2((c.quantity || 0) * (c.unitPriceNgn || 0));
+
   return totalize({
     unit: rate.unit,
     zone,
     components,
     overheadPercent: rate.overheadPercent ?? 10,
     profitPercent: rate.profitPercent ?? 25,
-    notes: `Matched library rate: ${rate.description}`,
+    notes: `Matched library rate: ${rate.description}${zone ? ` (component prices for ${zone})` : ""}`,
     librarySource: rate.code || rate.description,
   });
 }
