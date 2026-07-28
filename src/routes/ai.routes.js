@@ -8,6 +8,7 @@ import { takeoffCommand } from "../services/takeoffCommandService.js";
 import { budgetMatch } from "../services/budgetMatchService.js";
 import { billCleanup } from "../services/billCleanupService.js";
 import { billAsk } from "../services/billAskService.js";
+import { billFeedback } from "../services/billFeedbackService.js";
 
 const router = Router();
 router.use(requireAiEntitlement);
@@ -92,11 +93,20 @@ router.post("/budget-match", async (req, res, next) => {
 // against the RateGen library instead of asking a model.
 router.post("/bill-cleanup", async (req, res, next) => {
   try {
-    const { items, zone, checks } = req.body || {};
+    const { items, zone, checks, specifications } = req.body || {};
     if (!Array.isArray(items) || !items.length) {
       return res.status(400).json({ error: "items[] is required", code: "BAD_INPUT" });
     }
-    res.json(await billCleanup({ tenantId: req.tenantId, product: req.product, items, zone, checks }));
+    res.json(
+      await billCleanup({
+        tenantId: req.tenantId,
+        product: req.product,
+        items,
+        zone,
+        checks,
+        specifications,
+      })
+    );
   } catch (err) {
     next(err);
   }
@@ -112,6 +122,20 @@ router.post("/bill-ask", async (req, res, next) => {
       return res.status(400).json({ error: "items[] is required", code: "BAD_INPUT" });
     }
     res.json(await billAsk({ tenantId: req.tenantId, product: req.product, question, items, currencyCode }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// What the QS did with the suggestions. Calls no model, so it consumes no
+// quota — charging someone for telling us we were wrong is the wrong incentive.
+router.post("/bill-feedback", async (req, res, next) => {
+  try {
+    const { decisions } = req.body || {};
+    if (!Array.isArray(decisions)) {
+      return res.status(400).json({ error: "decisions[] is required", code: "BAD_INPUT" });
+    }
+    res.json(await billFeedback({ tenantId: req.tenantId, decisions }));
   } catch (err) {
     next(err);
   }

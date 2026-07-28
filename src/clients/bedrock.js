@@ -2,6 +2,7 @@ import { AnthropicBedrockMantle } from "@anthropic-ai/bedrock-sdk";
 import Anthropic from "@anthropic-ai/sdk";
 import { config } from "../config/index.js";
 import { meterAiCall } from "../governance/meterAiCall.js";
+import { ModelUnavailableError } from "../middleware/errors.js";
 
 // Single model-call entry point. There is deliberately NO unmetered invoke —
 // every model call flows through meterAiCall by construction.
@@ -23,6 +24,19 @@ function extractText(message) {
     .join("");
 }
 
+// Bedrock reports "you have not been granted access to this model" as an
+// AccessDenied, and an id that is not enabled in the region as a Validation
+// error. Both mean the same thing operationally — the account cannot call this
+// model — and neither is retryable, so they are separated from real faults.
+function isModelAccessError(err) {
+  const name = String(err?.name || "");
+  const status = Number(err?.status || err?.statusCode || 0);
+  const text = String(err?.message || "");
+  if (name === "AccessDeniedException" || name === "ValidationException") return true;
+  if (status === 403) return true;
+  return /don't have access|not authorized|access to the model|model.*not.*enabled/i.test(text);
+}
+
 function parseJsonLoose(text) {
   try {
     return JSON.parse(text);
@@ -39,12 +53,18 @@ export async function invokeJson(meta, { modelId, system, user, maxTokens = 2048
   const { result, costUsd } = await meterAiCall(
     { ...meta, service: "bedrock", model: modelId, operation: direct ? `${meta.operation || ""}@direct` : meta.operation },
     async () => {
-      const message = await client.messages.create({
-        model: direct ? modelId.replace(/^anthropic\./, "") : modelId,
-        max_tokens: maxTokens,
-        system: `${system}\nRespond with a single JSON object only. No prose, no markdown fences.`,
-        messages: [{ role: "user", content: user }],
-      });
+      let message;
+      try {
+        message = await client.messages.create({
+          model: direct ? modelId.replace(/^anthropic\./, "") : modelId,
+          max_tokens: maxTokens,
+          system: `${system}\nRespond with a single JSON object only. No prose, no markdown fences.`,
+          messages: [{ role: "user", content: user }],
+        });
+      } catch (err) {
+        if (isModelAccessError(err)) throw new ModelUnavailableError(modelId, err.message);
+        throw err;
+      }
       return {
         result: parseJsonLoose(extractText(message)),
         units: {

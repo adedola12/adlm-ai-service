@@ -103,7 +103,57 @@ VerdictAuditSchema.pre("findOneAndUpdate", function () {
   throw new Error("VerdictAudit is append-only");
 });
 
+// ── Per-tenant QS house style ────────────────────────────────────────────────
+// What this firm's bills actually look like: how they word descriptions, which
+// units they use for which work, how they order sections, and which AI
+// suggestions they have taken or thrown out.
+//
+// STRICTLY PER TENANT. Nothing in here may be pooled, aggregated across
+// accounts, or used to ground another tenant's suggestions. Bill descriptions
+// and specifications are commercially sensitive tender content — a firm's
+// wording appearing in a competitor's bill would be a serious breach, not a
+// feature. Every read is by tenantId; there is deliberately no cross-tenant
+// query path in qsProfile.js.
+const QsExampleSchema = new Schema(
+  {
+    // The raw take-off wording, and what this firm turned it into.
+    source: { type: String, default: "" },
+    accepted: { type: String, required: true },
+    unit: { type: String, default: "" },
+    section: { type: String, default: "" },
+    // "specification" (the QS wrote it themselves — the strongest signal),
+    // "aiAccepted" (they took an AI suggestion), "aiRejected" (they refused one).
+    origin: { type: String, required: true },
+    at: { type: Date, default: Date.now },
+  },
+  { _id: false, versionKey: false }
+);
+
+const TenantQsProfileSchema = new Schema(
+  {
+    tenantId: { type: String, required: true, unique: true },
+    // Capped, most-recent-first. A profile is a style sample, not an archive —
+    // an unbounded list would grow past what can be put in a prompt and would
+    // weight a firm's oldest habits as heavily as its current ones.
+    examples: { type: [QsExampleSchema], default: [] },
+    // unit conventions: normalised description keyword -> the unit this firm
+    // consistently bills that work in.
+    unitConventions: { type: Map, of: String, default: {} },
+    // Section names in the order this firm arranges them.
+    sectionOrder: { type: [String], default: [] },
+    // Wording the firm has repeatedly rejected — fed to the model as things not
+    // to propose again. Rejections are as informative as acceptances.
+    rejectedPhrases: { type: [String], default: [] },
+    updatedAt: { type: Date, default: Date.now },
+    // Bumped on every write and folded into the cache key, so a profile change
+    // does not keep serving suggestions made under the old house style.
+    revision: { type: Number, default: 0 },
+  },
+  { versionKey: false }
+);
+
 export const AiUsageEvent = mongoose.model("AiUsageEvent", AiUsageEventSchema);
+export const TenantQsProfile = mongoose.model("TenantQsProfile", TenantQsProfileSchema);
 export const PricingRate = mongoose.model("PricingRate", PricingRateSchema);
 export const TenantAiQuota = mongoose.model("TenantAiQuota", TenantAiQuotaSchema);
 export const CreditAccount = mongoose.model("CreditAccount", CreditAccountSchema);

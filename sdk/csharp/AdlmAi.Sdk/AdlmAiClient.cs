@@ -88,6 +88,60 @@ namespace AdlmAi
                 progress, ct);
         }
 
+        /// <summary>
+        /// Bill clean-up: descriptions, units, duplicates and coverage gaps. Rates are NOT
+        /// covered here — call <see cref="BoqCheckAsync"/> for those, which benchmarks
+        /// against the RateGen library instead of asking a model to judge a number.
+        /// </summary>
+        /// <param name="specifications">Bill descriptions this QS wrote themselves. Sent so
+        /// the service learns their house style; stored strictly per tenant and never pooled.</param>
+        public Task<AiResult<BillCleanupResult>> BillCleanupAsync(
+            IEnumerable<BillItem> items, string zone = null,
+            IEnumerable<string> checks = null,
+            IEnumerable<BillSpecification> specifications = null,
+            IProgress<string> progress = null, CancellationToken ct = default)
+        {
+            return PostAsync<BillCleanupResult>(
+                "/api/ai/bill-cleanup",
+                new Dictionary<string, object>
+                {
+                    { "items", items }, { "zone", zone },
+                    { "checks", checks }, { "specifications", specifications }
+                },
+                progress, ct);
+        }
+
+        /// <summary>Answers a free-text question about a prepared bill. Read-only — it
+        /// returns prose and never findings, so no answer can change a bill.</summary>
+        public Task<AiResult<BillAskResult>> BillAskAsync(
+            string question, IEnumerable<BillItem> items, string currencyCode = null,
+            IProgress<string> progress = null, CancellationToken ct = default)
+        {
+            return PostAsync<BillAskResult>(
+                "/api/ai/bill-ask",
+                new Dictionary<string, object>
+                {
+                    { "question", question }, { "items", items }, { "currencyCode", currencyCode }
+                },
+                progress, ct);
+        }
+
+        /// <summary>
+        /// Records which suggestions the QS took and which they refused, so the next review
+        /// reflects their judgement instead of repeating it back at them. Consumes no quota.
+        /// Fire-and-forget from the caller's point of view: the bill edit has already
+        /// happened locally, so a failure here must never surface as a failed apply.
+        /// </summary>
+        public Task<AiResult<BillFeedbackResult>> BillFeedbackAsync(
+            IEnumerable<BillFeedbackDecision> decisions,
+            IProgress<string> progress = null, CancellationToken ct = default)
+        {
+            return PostAsync<BillFeedbackResult>(
+                "/api/ai/bill-feedback",
+                new Dictionary<string, object> { { "decisions", decisions } },
+                progress, ct);
+        }
+
         public Task<AiResult<CatalogueResult>> CatalogueExtractAsync(
             IEnumerable<CataloguePage> pages,
             IEnumerable<string> taxonomy = null,

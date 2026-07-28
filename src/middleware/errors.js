@@ -15,8 +15,28 @@ export class ThrottledError extends Error {
   }
 }
 
+// The provider refused the call itself — Bedrock model access not granted in
+// this account, or a model id that is not enabled in the region. Distinct from
+// a bug: nothing in the request is wrong and no retry will help until someone
+// grants access in the Bedrock console. Surfaced as its own code so it does not
+// hide inside a generic 500 and get chased as an application fault.
+export class ModelUnavailableError extends Error {
+  constructor(modelId, detail) {
+    super(
+      `Model '${modelId}' is not available to this account. Grant access in the Bedrock console for this region, or set AI_PROVIDER=anthropic to fall back.`
+    );
+    this.code = "MODEL_UNAVAILABLE";
+    this.status = 503;
+    this.detail = detail;
+  }
+}
+
 // eslint-disable-next-line no-unused-vars
 export function errorHandler(err, req, res, next) {
+  if (err instanceof ModelUnavailableError) {
+    console.error("[adlm-ai] model unavailable:", err.message, err.detail || "");
+    return res.status(503).json({ ok: false, code: err.code, message: err.message });
+  }
   if (err instanceof QuotaExceededError) {
     return res.status(200).json({
       ok: false,

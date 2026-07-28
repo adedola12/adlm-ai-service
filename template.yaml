@@ -30,9 +30,13 @@ Parameters:
     NoEcho: true
   AiProvider:
     Type: String
-    Default: anthropic
+    Default: bedrock
     AllowedValues: [anthropic, bedrock]
-    Description: anthropic = direct API fallback until Bedrock model access is unblocked; then switch to bedrock.
+    Description: >-
+      bedrock = production. Model calls bill against the AWS Activate credit and
+      the Lambda role's bedrock:InvokeModel policy below, so no provider API key
+      is held anywhere. anthropic = direct-API fallback, kept for the case where
+      model access in this account lapses; it bills cash, not credit.
   AnthropicApiKey:
     Type: String
     NoEcho: true

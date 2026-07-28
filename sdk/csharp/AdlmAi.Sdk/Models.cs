@@ -190,4 +190,87 @@ namespace AdlmAi
         [JsonPropertyName("disposition")] public string Disposition { get; set; }
         [JsonPropertyName("templateRow")] public Dictionary<string, string> TemplateRow { get; set; }
     }
+
+    // ── Bill clean-up / ask / feedback ──────────────────────────────────────
+
+    /// <summary>A bill line for the clean-up and ask features. <see cref="Ref"/> is the
+    /// caller's own row handle — findings come back keyed by it, so an answer maps to a
+    /// row without matching on description text.</summary>
+    public sealed class BillItem
+    {
+        [JsonPropertyName("ref")] public string Ref { get; set; }
+        [JsonPropertyName("section")] public string Section { get; set; }
+        [JsonPropertyName("description")] public string Description { get; set; }
+        [JsonPropertyName("unit")] public string Unit { get; set; }
+        [JsonPropertyName("quantity")] public double Quantity { get; set; }
+        [JsonPropertyName("rate")] public double Rate { get; set; }
+        /// <summary>Breakdown sub-items are costed but not billed on their own, so the
+        /// clean-up pass skips them.</summary>
+        [JsonPropertyName("isSubItem")] public bool IsSubItem { get; set; }
+    }
+
+    /// <summary>A bill description the QS wrote themselves, overriding what the take-off
+    /// produced. Sent so the service can learn this firm's house style — it is the clearest
+    /// statement of their wording available. Stored strictly per tenant.</summary>
+    public sealed class BillSpecification
+    {
+        /// <summary>The raw take-off wording it replaced.</summary>
+        [JsonPropertyName("source")] public string Source { get; set; }
+        /// <summary>What the QS wrote instead.</summary>
+        [JsonPropertyName("specification")] public string Specification { get; set; }
+        [JsonPropertyName("unit")] public string Unit { get; set; }
+        [JsonPropertyName("section")] public string Section { get; set; }
+    }
+
+    /// <summary>One proposed change. Advisory until the caller applies it.</summary>
+    public sealed class BillFinding
+    {
+        [JsonPropertyName("id")] public string Id { get; set; }
+        /// <summary>description | unit | merge | missing.</summary>
+        [JsonPropertyName("kind")] public string Kind { get; set; }
+        /// <summary>The item ref this is about. Empty for a "missing" finding.</summary>
+        [JsonPropertyName("itemId")] public string ItemId { get; set; }
+        [JsonPropertyName("section")] public string Section { get; set; }
+        [JsonPropertyName("current")] public string Current { get; set; }
+        [JsonPropertyName("proposed")] public string Proposed { get; set; }
+        [JsonPropertyName("rationale")] public string Rationale { get; set; }
+        [JsonPropertyName("confidence")] public double Confidence { get; set; }
+        [JsonPropertyName("severity")] public string Severity { get; set; }
+        /// <summary>Other refs folded in by a duplicate finding.</summary>
+        [JsonPropertyName("mergeWith")] public List<string> MergeWith { get; set; }
+    }
+
+    public sealed class BillCleanupResult
+    {
+        [JsonPropertyName("zone")] public string Zone { get; set; }
+        [JsonPropertyName("checks")] public List<string> Checks { get; set; }
+        [JsonPropertyName("findings")] public List<BillFinding> Findings { get; set; }
+        [JsonPropertyName("escalated")] public bool Escalated { get; set; }
+    }
+
+    public sealed class BillAskResult
+    {
+        [JsonPropertyName("answer")] public string Answer { get; set; }
+    }
+
+    /// <summary>What the QS did with one suggestion. Only description and unit decisions
+    /// teach house style — a rate flag being accepted says the rate needed a look, not that
+    /// this is how the firm writes.</summary>
+    public sealed class BillFeedbackDecision
+    {
+        [JsonPropertyName("kind")] public string Kind { get; set; }
+        [JsonPropertyName("source")] public string Source { get; set; }
+        [JsonPropertyName("proposed")] public string Proposed { get; set; }
+        [JsonPropertyName("unit")] public string Unit { get; set; }
+        [JsonPropertyName("section")] public string Section { get; set; }
+        [JsonPropertyName("accepted")] public bool Accepted { get; set; }
+    }
+
+    public sealed class BillFeedbackResult
+    {
+        [JsonPropertyName("recorded")] public int Recorded { get; set; }
+        [JsonPropertyName("accepted")] public int Accepted { get; set; }
+        [JsonPropertyName("rejected")] public int Rejected { get; set; }
+        [JsonPropertyName("profileRevision")] public int ProfileRevision { get; set; }
+    }
 }

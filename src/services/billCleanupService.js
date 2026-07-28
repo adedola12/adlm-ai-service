@@ -1,5 +1,6 @@
 import { invokeJson } from "../clients/bedrock.js";
 import { pickModel, ESCALATION_CONFIDENCE_THRESHOLD } from "../governance/modelRouter.js";
+import { getProfile, houseStyleBlock, profileRevision, recordExamples } from "../grounding/qsProfile.js";
 import { runFeature } from "./featurePipeline.js";
 
 // Bill clean-up: turns a raw take-off into something that reads like a priced
@@ -19,8 +20,17 @@ const MAX_ITEMS = 400;
 // on its own — it means the take-off template leaked a raw PlanSwift unit.
 const KNOWN_UNITS = new Set(["m", "sq m", "cu m", "no", "kg", "tonne", "sum", "item", "nr", "m2", "m3"]);
 
-export async function billCleanup({ tenantId, product, items, zone, checks }) {
+export async function billCleanup({ tenantId, product, items, zone, checks, specifications }) {
   const wanted = normalizeChecks(checks);
+
+  // Specifications are bill descriptions this QS wrote themselves to override
+  // what the take-off produced — the clearest statement of their house style
+  // available, and it costs nothing to capture. Folded into the profile before
+  // the review runs so the very first review already reflects them.
+  await captureSpecifications(tenantId, items, specifications);
+
+  const profile = await getProfile(tenantId);
+  const houseStyle = houseStyleBlock(profile);
 
   const normItems = (items || []).slice(0, MAX_ITEMS).map((it, i) => ({
     ref: String(it.ref ?? i + 1),
@@ -41,6 +51,9 @@ export async function billCleanup({ tenantId, product, items, zone, checks }) {
     input: {
       checks: wanted,
       zone: zone || null,
+      // The profile shapes the wording, so a bill reviewed before and after the
+      // firm's style changed must not serve the older suggestions.
+      profile: profileRevision(profile),
       items: normItems.map((i) => `${i.section}|${i.description}|${i.unit}`.toLowerCase()),
     },
     compute: async () => {
@@ -70,7 +83,7 @@ export async function billCleanup({ tenantId, product, items, zone, checks }) {
 
           let { json } = await invokeJson(
             { tenantId, product, feature: "billCleanup", operation: "cleanup-batch" },
-            { modelId: cheap.modelId, maxTokens: 4000, system: SYSTEM_PROMPT, user: JSON.stringify(payload) }
+            { modelId: cheap.modelId, maxTokens: 4000, system: SYSTEM_PROMPT + houseStyle, user: JSON.stringify(payload) }
           );
           usedModel = cheap.modelId;
 
@@ -83,7 +96,7 @@ export async function billCleanup({ tenantId, product, items, zone, checks }) {
             const strong = pickModel("billCleanup", { escalate: true });
             ({ json } = await invokeJson(
               { tenantId, product, feature: "billCleanup", operation: "cleanup-batch", escalated: true },
-              { modelId: strong.modelId, maxTokens: 4000, system: SYSTEM_PROMPT, user: JSON.stringify(payload) }
+              { modelId: strong.modelId, maxTokens: 4000, system: SYSTEM_PROMPT + houseStyle, user: JSON.stringify(payload) }
             ));
             batchFindings = sanitize(json.findings, batch, wanted);
             usedModel = strong.modelId;
@@ -118,6 +131,38 @@ export async function billCleanup({ tenantId, product, items, zone, checks }) {
       };
     },
   });
+}
+
+// Folds the caller's own wording into their profile: the Specification overrides
+// they typed, plus the order they arranged sections in. Best-effort — a profile
+// write must never fail a review, because the review is what the user asked for
+// and the learning is a side effect.
+async function captureSpecifications(tenantId, items, specifications) {
+  if (!tenantId) return;
+  try {
+    const examples = (Array.isArray(specifications) ? specifications : [])
+      .map((s) => ({
+        source: String(s.source || "").trim(),
+        accepted: String(s.specification || "").trim(),
+        unit: String(s.unit || "").trim(),
+        section: String(s.section || "").trim(),
+        origin: "specification",
+      }))
+      .filter((e) => e.accepted);
+
+    // Section order as arranged in this bill, first appearance wins.
+    const sectionOrder = [];
+    for (const it of items || []) {
+      const section = String(it.section || "").trim();
+      if (section && !sectionOrder.includes(section)) sectionOrder.push(section);
+    }
+
+    if (examples.length || sectionOrder.length) {
+      await recordExamples(tenantId, { examples, sectionOrder });
+    }
+  } catch (err) {
+    console.error("[billCleanup] profile capture failed:", err.message);
+  }
 }
 
 function normalizeChecks(checks) {
