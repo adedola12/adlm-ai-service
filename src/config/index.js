@@ -47,7 +47,10 @@ export const config = {
 
   credit: {
     totalUsd: num(process.env.CREDIT_TOTAL_USD, 25000),
-    startDate: process.env.CREDIT_START_DATE || "2025-08-01",
+    // Actual AWS Activate credit (NVIDIA Inception Global, $25,000):
+    // active 01 Jul 2026 → 31 Jul 2028, confirmed on the Billing → Credits
+    // console 28 Jul 2026.
+    startDate: process.env.CREDIT_START_DATE || "2026-07-01",
     expiryDate: process.env.CREDIT_EXPIRY_DATE || "2028-07-31",
     guardThreshold: num(process.env.CREDIT_GUARD_THRESHOLD, 1.25),
     alarmDailySpendUsd: num(process.env.ALARM_DAILY_SPEND_USD, 50),
