@@ -34,6 +34,15 @@ export const config = {
   jwtLicenseSecret: process.env.JWT_LICENSE_SECRET || "",
   jwtAccessSecret: process.env.JWT_ACCESS_SECRET || "",
   aiEntitlementKey: (process.env.AI_ENTITLEMENT_KEY || "ai").toLowerCase(),
+  // WHO gets AI access — a business decision, so it lives in config:
+  //   "any-subscription" (current policy) — any active ADLM entitlement grants
+  //     access. AI ships to the whole subscribed base while it is being built
+  //     out; spend is bounded by quotas + the credit guard, not by the gate.
+  //   "entitlement" — only accounts holding the `ai` add-on (AI_ENTITLEMENT_KEY).
+  //     Switch to this when AI becomes separately priced.
+  // Either way an ACTIVE, unexpired entitlement is required — never a bare
+  // valid token.
+  aiAccessMode: (process.env.AI_ACCESS_MODE || "any-subscription").toLowerCase(),
   adminApiKey: process.env.ADMIN_API_KEY || "",
 
   credit: {

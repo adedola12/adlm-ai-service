@@ -37,6 +37,15 @@ Parameters:
     Type: String
     NoEcho: true
     Default: ""
+  AiAccessMode:
+    Type: String
+    Default: any-subscription
+    AllowedValues: [any-subscription, entitlement]
+    Description: >-
+      Who gets AI access. any-subscription = any ACTIVE ADLM entitlement (current
+      policy while AI is being built out; spend is bounded by quotas and the credit
+      guard). entitlement = only the `ai` add-on. Both require an active,
+      unexpired entitlement. Flip this without a code change when AI is priced.
   AlarmEmail:
     Type: String
     Default: dolapo836@gmail.com
@@ -57,6 +66,7 @@ Resources:
           ADMIN_API_KEY: !Ref AdminApiKey
           AI_PROVIDER: !Ref AiProvider
           ANTHROPIC_API_KEY: !Ref AnthropicApiKey
+          AI_ACCESS_MODE: !Ref AiAccessMode
           ADLM_CLOUD_URL: https://adlmweb.onrender.com
           BEDROCK_MODEL_CHEAP: anthropic.claude-haiku-4-5
           BEDROCK_MODEL_STRONG: anthropic.claude-sonnet-5

@@ -62,14 +62,20 @@ async function fetchEntitlements(accessToken, userId) {
   return entitlements;
 }
 
+function isActive(e) {
+  return e && e.status === "active" && (!e.expiresAt || new Date(e.expiresAt) > new Date());
+}
+
+// Access gate. Under the current "any-subscription" policy any active ADLM
+// subscription grants AI access; under "entitlement" only the `ai` add-on
+// does. See config.aiAccessMode — this is a pricing decision, not code.
+// An active entitlement is required in BOTH modes: a valid token alone is
+// never enough, so an expired or cancelled account can't spend AI credit.
 function hasActiveAi(entitlements) {
+  const list = entitlements || [];
+  if (config.aiAccessMode === "any-subscription") return list.some(isActive);
   const key = config.aiEntitlementKey;
-  return (entitlements || []).some(
-    (e) =>
-      String(e.productKey || "").toLowerCase() === key &&
-      e.status === "active" &&
-      (!e.expiresAt || new Date(e.expiresAt) > new Date())
-  );
+  return list.some((e) => String(e.productKey || "").toLowerCase() === key && isActive(e));
 }
 
 export async function requireAiEntitlement(req, res, next) {
@@ -94,7 +100,10 @@ export async function requireAiEntitlement(req, res, next) {
 
     if (!hasActiveAi(entitlements)) {
       return res.status(403).json({
-        error: "AI add-on not active for this account",
+        error:
+          config.aiAccessMode === "any-subscription"
+            ? "No active ADLM subscription on this account"
+            : "AI add-on not active for this account",
         code: "AI_NOT_ENTITLED",
       });
     }
