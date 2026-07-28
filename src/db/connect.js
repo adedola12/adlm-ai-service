@@ -18,8 +18,12 @@ export async function connectAiDb() {
 }
 
 // ── Grounding data (read-only) ───────────────────────────────────────────────
-// Raw driver client for the RateGen library. Reads only — the AI service must
-// never write to adlmWeb or ADLMRateDB.
+// Raw driver clients for the RateGen library. Reads only — the AI service
+// must never write to adlmWeb or ADLMRateDB.
+//
+// The zone-priced master library lives on the RateGen ADMIN cluster
+// (RATEGEN_MONGO_URI — same value the website's /rategen/master routes use).
+// When unset, falls back to the main cluster.
 let client = null;
 async function groundingClient() {
   if (!client) {
@@ -29,10 +33,20 @@ async function groundingClient() {
   return client;
 }
 
+let rategenClient = null;
+async function rategenMasterClient() {
+  if (!config.rategenMongoUri) return groundingClient();
+  if (!rategenClient) {
+    rategenClient = new MongoClient(config.rategenMongoUri, { serverSelectionTimeoutMS: 10000 });
+    await rategenClient.connect();
+  }
+  return rategenClient;
+}
+
 export async function groundingDb() {
   return (await groundingClient()).db(config.groundingDb);
 }
 
 export async function rategenMasterDb() {
-  return (await groundingClient()).db(config.rategenMasterDb);
+  return (await rategenMasterClient()).db(config.rategenMasterDb);
 }

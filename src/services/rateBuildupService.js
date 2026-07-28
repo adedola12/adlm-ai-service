@@ -46,9 +46,9 @@ export async function rateBuildup({ tenantId, product, description, zone, unit }
         }
       );
 
-      // Re-price model-proposed components against the master price lists so
-      // library prices win over model guesses wherever a match exists.
-      const result = await repriceComponents(json, candidates);
+      // Re-price model-proposed components against the zone-priced master
+      // lists so library prices win over model guesses wherever a match exists.
+      const result = await repriceComponents(json, candidates, normZone);
       return { model: modelId, confidence: json.confidence ?? 0.5, result };
     },
   });
@@ -95,7 +95,7 @@ function buildFromLibrary(rate, zone) {
   });
 }
 
-async function repriceComponents(json, candidates) {
+async function repriceComponents(json, candidates, zone = null) {
   const components = (json.components || []).map((c) => ({
     kind: c.kind || "material",
     name: c.name,
@@ -108,8 +108,8 @@ async function repriceComponents(json, candidates) {
 
   const modelPriced = components.filter((c) => c.source === "model");
   const [mats, labs] = await Promise.all([
-    findPrices(modelPriced.filter((c) => c.kind === "material").map((c) => c.name), "material"),
-    findPrices(modelPriced.filter((c) => c.kind === "labour").map((c) => c.name), "labour"),
+    findPrices(modelPriced.filter((c) => c.kind === "material").map((c) => c.name), "material", zone),
+    findPrices(modelPriced.filter((c) => c.kind === "labour").map((c) => c.name), "labour", zone),
   ]);
   const priceMap = new Map([...mats, ...labs].map((p) => [p.query, p]));
   for (const c of components) {

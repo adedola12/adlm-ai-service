@@ -13,6 +13,9 @@ export const config = {
   mongoUri: process.env.MONGO_URI,
   aiDb: process.env.AI_DB || "adlm_ai",
   groundingDb: process.env.GROUNDING_DB || "adlmWeb",
+  // Zone-priced RateGen admin cluster (read-only). Same value as the
+  // website's RATEGEN_MONGO_URI. Falls back to MONGO_URI when unset.
+  rategenMongoUri: process.env.RATEGEN_MONGO_URI || "",
   rategenMasterDb: process.env.RATEGEN_MASTER_DB || "ADLMRateDB",
   rategenMatCollection: process.env.RATEGEN_MAT_COLLECTION || "Materials",
   rategenLabCollection: process.env.RATEGEN_LAB_COLLECTION || "labours",

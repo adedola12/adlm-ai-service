@@ -12,6 +12,11 @@ Parameters:
   MongoUri:
     Type: String
     NoEcho: true
+  RategenMongoUri:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: Zone-priced RateGen admin cluster (read-only grounding).
   JwtLicenseSecret:
     Type: String
     NoEcho: true
@@ -45,6 +50,7 @@ Resources:
       Environment:
         Variables:
           MONGO_URI: !Ref MongoUri
+          RATEGEN_MONGO_URI: !Ref RategenMongoUri
           AI_DB: adlm_ai
           JWT_LICENSE_SECRET: !Ref JwtLicenseSecret
           JWT_ACCESS_SECRET: !Ref JwtAccessSecret
