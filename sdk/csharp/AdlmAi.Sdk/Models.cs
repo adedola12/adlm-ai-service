@@ -132,6 +132,40 @@ namespace AdlmAi
         [JsonPropertyName("automatable")] public bool Automatable { get; set; }
     }
 
+    // ── Budget match ────────────────────────────────────────────────────────
+
+    public sealed class BudgetMatchRow
+    {
+        [JsonPropertyName("id")] public string Id { get; set; }
+        [JsonPropertyName("description")] public string Description { get; set; }
+        [JsonPropertyName("unit")] public string Unit { get; set; }
+    }
+
+    public sealed class BudgetMatchCandidate
+    {
+        [JsonPropertyName("id")] public string Id { get; set; }
+        [JsonPropertyName("name")] public string Name { get; set; }
+        [JsonPropertyName("unit")] public string Unit { get; set; }
+        [JsonPropertyName("rate")] public double Rate { get; set; }
+    }
+
+    public sealed class BudgetMatchResult
+    {
+        [JsonPropertyName("matches")] public List<BudgetMatch> Matches { get; set; }
+        [JsonPropertyName("unmatched")] public List<string> Unmatched { get; set; }
+    }
+
+    public sealed class BudgetMatch
+    {
+        [JsonPropertyName("rowId")] public string RowId { get; set; }
+        [JsonPropertyName("candidateId")] public string CandidateId { get; set; }
+        [JsonPropertyName("candidateName")] public string CandidateName { get; set; }
+        [JsonPropertyName("unit")] public string Unit { get; set; }
+        [JsonPropertyName("rate")] public double Rate { get; set; }
+        [JsonPropertyName("confidence")] public double Confidence { get; set; }
+        [JsonPropertyName("reason")] public string Reason { get; set; }
+    }
+
     // ── Catalogue ───────────────────────────────────────────────────────────
 
     public sealed class CatalogueResult

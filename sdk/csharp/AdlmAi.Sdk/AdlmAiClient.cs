@@ -78,6 +78,16 @@ namespace AdlmAi
                 progress, ct);
         }
 
+        public Task<AiResult<BudgetMatchResult>> BudgetMatchAsync(
+            IEnumerable<BudgetMatchRow> rows, IEnumerable<BudgetMatchCandidate> candidates,
+            IProgress<string> progress = null, CancellationToken ct = default)
+        {
+            return PostAsync<BudgetMatchResult>(
+                "/api/ai/budget-match",
+                new Dictionary<string, object> { { "rows", rows }, { "candidates", candidates } },
+                progress, ct);
+        }
+
         public Task<AiResult<CatalogueResult>> CatalogueExtractAsync(
             IEnumerable<CataloguePage> pages,
             IEnumerable<string> taxonomy = null,

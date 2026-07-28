@@ -55,6 +55,7 @@ export const config = {
     outliers: 1,
     catalogueExtract: 5,
     takeoffCommand: 1,
+    budgetMatch: 1,
   },
   // Features throttled first when the credit guard trips. boqCheck and
   // rateBuildup are the paid headline features and stay up the longest.

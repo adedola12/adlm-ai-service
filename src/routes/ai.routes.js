@@ -5,6 +5,7 @@ import { boqCheck } from "../services/boqCheckService.js";
 import { detectOutliers } from "../services/outlierService.js";
 import { catalogueExtract } from "../services/catalogueService.js";
 import { takeoffCommand } from "../services/takeoffCommandService.js";
+import { budgetMatch } from "../services/budgetMatchService.js";
 
 const router = Router();
 router.use(requireAiEntitlement);
@@ -67,6 +68,18 @@ router.post("/takeoff-command", async (req, res, next) => {
       return res.status(400).json({ error: "prompt is required", code: "BAD_INPUT" });
     }
     res.json(await takeoffCommand({ tenantId: req.tenantId, product: req.product, prompt, context }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/budget-match", async (req, res, next) => {
+  try {
+    const { rows, candidates } = req.body || {};
+    if (!Array.isArray(rows) || !rows.length || !Array.isArray(candidates) || !candidates.length) {
+      return res.status(400).json({ error: "rows[] and candidates[] are required", code: "BAD_INPUT" });
+    }
+    res.json(await budgetMatch({ tenantId: req.tenantId, product: req.product, rows, candidates }));
   } catch (err) {
     next(err);
   }
