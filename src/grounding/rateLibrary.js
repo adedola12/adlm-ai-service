@@ -33,7 +33,100 @@ const ITEM_COLLECTIONS = [
 
 const LABOUR_HINTS = /labour|workmanship|mason|carpenter|iron\s*bender|welder|fixing|placing|loading|unloading|foreman|headman|tradesman/i;
 
-const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// ── Material/labour name matching ───────────────────────────────────────────
+// Scoring by query coverage alone is why "Water" returned "Water proof
+// membrane - Bitulene 180HP" at N68,000: the one query token appears, so it
+// scored a perfect 1.0, exactly like a real water row would have. Six
+// different cements scored 1.0 for "cement" too, and the winner was whichever
+// row the database happened to return first.
+//
+// The signal that separates them is what the candidate adds. "Cement (50kg
+// bag)" adds a size and a packaging word — still cement. "Coloured Cement",
+// "Loading and unloading cement" and "Water proof membrane" add CONTENT words
+// that make them a different thing. So extra tokens are classified, and only
+// unexplained content words are penalised.
+//
+// Deliberately NOT applied to findCandidateRates: those descriptions are full
+// BESMM sentences where unmatched content words are normal, not a signal.
+const PACKAGING_TOKENS = new Set([
+  "bag", "bags", "box", "boxes", "roll", "rolls", "pkt", "packet", "pack",
+  "tin", "tins", "drum", "gallon", "sachet", "carton", "bundle", "sheet",
+  "sheets", "piece", "pieces", "pair", "set", "length", "lengths", "each",
+  "litre", "litres", "ltr", "kg", "tonne", "tonnes", "ton", "no", "nos",
+  "ea", "unit", "units", "thick", "dia", "size", "sizes",
+]);
+
+// A token that qualifies rather than redefines: a number, a number with a
+// unit suffix (50kg, 12mm, 180hp, 1m), or a packaging/measure word.
+function isQualifierToken(t) {
+  return /^\d/.test(t) || PACKAGING_TOKENS.has(t);
+}
+
+const squash = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+// Coverage of the QUERY, tolerant of compound splits: "waterproof" matches a
+// candidate written "Water proof". Without this, tightening the score below
+// would have broken "Waterproof membrane", which is a genuine match.
+function coverageScore(queryTokens, candidateName) {
+  const hay = String(candidateName || "").toLowerCase();
+  const flat = squash(candidateName);
+  let hits = 0;
+  for (const t of queryTokens) {
+    if (/^\d+$/.test(t)) {
+      // Numbers must stand alone: "25" is not a match inside "125mm".
+      if (new RegExp(`(?<!\\d)${t}(?!\\d)`).test(hay)) hits += 1;
+      continue;
+    }
+    if (hay.includes(t) || (t.length >= 5 && flat.includes(t))) {
+      hits += 1;
+      continue;
+    }
+    // A dimension also matches the same dimension written without its unit,
+    // so "Blocks 150mm" finds "150 x 225 x 450mm … Hollow blocks". Without
+    // this the correct 150mm row scores no better than the 100mm one.
+    const dim = /^(\d+)(?:mm|cm|m|kg|g|ltr|litre|l|in|inch)$/.exec(t);
+    if (dim && new RegExp(`(?<!\\d)${dim[1]}(?!\\d)`).test(hay)) hits += 1;
+  }
+  return queryTokens.length ? hits / queryTokens.length : 0;
+}
+
+// Content words in the candidate the query never mentioned. Each is evidence
+// the candidate is a DIFFERENT product. A candidate word also counts as
+// explained when it is part of a compound the query used ("proof" inside
+// "waterproof"), so a split spelling is not punished as a mismatch.
+function unexplainedContent(queryTokens, candidateName) {
+  const q = new Set(queryTokens);
+  const flatQuery = queryTokens.filter((t) => t.length >= 5).join("|");
+  let n = 0;
+  for (const t of tokenize(candidateName)) {
+    if (q.has(t) || isQualifierToken(t)) continue;
+    if (t.length >= 4 && flatQuery.includes(t)) continue;
+    n += 1;
+  }
+  return n;
+}
+
+// 0.25 per unexplained content word, calibrated on the real library:
+//   "water"      vs "Water proof membrane - Bitulene"  1.00 - 3x.25 = 0.25  REJECTED
+//   "waterproof membrane" vs the same row              1.00 - 1x.25 = 0.75  matches
+//   "cement"     vs "Cement (50kg bag)"                1.00 - 0     = 1.00  wins
+//   "cement"     vs "Coloured Cement"                  1.00 - 1x.25 = 0.75
+//   "cement"     vs "Loading and unloading cement"     1.00 - 2x.25 = 0.50
+//   "white cement" vs "White Cement"                   1.00 - 0     = 1.00  wins
+//   "nails"      vs "Nails 1 1/2\""                    1.00 - 0     = 1.00  wins
+//   "nails"      vs "Drive Screws/Roofing Nails"       1.00 - 3x.25 = 0.25  REJECTED
+// A size-less "sandcrete blocks" now falls below the 0.3 floor rather than
+// silently picking the 100mm row out of three sizes — the caller's fallback is
+// the model's own price, honestly labelled "model", which beats a coin flip.
+const CONTENT_PENALTY = 0.25;
+
+function nameScore(queryTokens, candidateName) {
+  return Math.max(
+    0,
+    coverageScore(queryTokens, candidateName) -
+      CONTENT_PENALTY * unexplainedContent(queryTokens, candidateName),
+  );
+}
 
 // Short tokens are usually noise ("in", "to", "of") EXCEPT numbers, which are
 // the most discriminating part of a QS description: grade 10 vs grade 25,
@@ -195,44 +288,94 @@ export async function findComputeItems() {
 // ── Zone-aware master price lookups ─────────────────────────────────────────
 // Materials/labours carry a `zone` field (six Nigerian zones). Zone-matched
 // prices win; rows without a matching zone are the fallback.
-// NOT cached in memory, deliberately. The price lists are small enough to
-// cache (Materials 2,874 docs / 781 KB), and doing so cut this from ~1.3s to
-// ~3ms — but it also CHANGED WHICH PRICE IS RETURNED. Candidate names tie
-// constantly ("cement" scores a perfect 1.0 against "Cement (50kg bag)",
-// "Coloured Cement" and "Loading and unloading cement" alike, and each
-// material repeats across six zones), so the winner was only ever decided by
-// the order MongoDB happened to return rows in. Any reimplementation reshuffles
-// that, and a silently different unit rate is a worse outcome than a slower
-// one. The ~1.3s stays until the matching itself is fixed — see the note in
-// findCandidateRates; the tie-breaking needs to be made deliberate (exact/
-// prefix name match, non-zero price, explicit zone) before this can be a pure
-// performance change.
-export async function findPrices(names, kind = "material", zone = null, minScore = 0.3) {
+// Price lists are cached in memory (Materials 2,874 docs / 781 KB, labours
+// 414 / 94 KB) — a 10-minute TTL per container, as for the build-up library.
+//
+// This was held back earlier because caching changed which price came out. It
+// is safe now for two reasons: the score below actually discriminates between
+// candidates instead of tying at 1.0, and the sort is a TOTAL deterministic
+// order, so no result depends on the order rows arrive in.
+//
+// Caching also removes the `.limit(30)` that used to truncate the candidate
+// set BEFORE scoring — which was its own correctness bug. "White cement"
+// returned "Aliphatic Polyurethane (Amercoat…)" and "Coloured cement" returned
+// a roofing sheet, not because the score preferred them but because the real
+// row was never among the 30 rows fetched. Every row is now scored.
+const priceCache = new Map(); // collection -> { rows, at }
+
+async function loadPrices(coll) {
+  const hit = priceCache.get(coll);
+  if (hit && Date.now() - hit.at < LIB_TTL_MS) return hit.rows;
   const db = await rategenMasterDb();
+  let rows = [];
+  try {
+    // Only the four fields this module reads — the full documents carry a lot
+    // of admin metadata, and the projection roughly halves the cold load.
+    rows = await db
+      .collection(coll)
+      .find(
+        {},
+        {
+          projection: {
+            _id: 0,
+            zone: 1,
+            MaterialName: 1,
+            MaterialUnit: 1,
+            MaterialPrice: 1,
+            LabourName: 1,
+            LabourUnit: 1,
+            LabourPrice: 1,
+          },
+        },
+      )
+      .toArray();
+  } catch {
+    return hit?.rows || [];
+  }
+  // Never replace a good cache with an empty read.
+  if (rows.length || !hit) priceCache.set(coll, { rows, at: Date.now() });
+  return priceCache.get(coll).rows;
+}
+
+export async function findPrices(names, kind = "material", zone = null, minScore = 0.3) {
   const coll = kind === "labour" ? config.rategenLabCollection : config.rategenMatCollection;
   const nameField = kind === "labour" ? "LabourName" : "MaterialName";
   const unitField = kind === "labour" ? "LabourUnit" : "MaterialUnit";
   const priceField = kind === "labour" ? "LabourPrice" : "MaterialPrice";
   const normZone = NIGERIAN_ZONES.includes(zone) ? zone : null;
 
+  const all = await loadPrices(coll);
+  // Same zone rule as before: zone-matched rows and rows carrying no zone are
+  // eligible; the +0.25 below lets a zone match win a tie.
+  const rows = normZone
+    ? all.filter((r) => r.zone === normZone || r.zone === undefined)
+    : all;
+
   const results = [];
   for (const name of (names || []).slice(0, 20)) {
     const tokens = tokenize(name);
     if (!tokens.length) continue;
-    const or = tokens.slice(0, 4).map((t) => ({ [nameField]: { $regex: escapeRegex(t), $options: "i" } }));
-    const filter = normZone ? { $and: [{ $or: or }, { $or: [{ zone: normZone }, { zone: { $exists: false } }] }] } : { $or: or };
-    let rows = [];
-    try {
-      rows = await db.collection(coll).find(filter).limit(30).toArray();
-    } catch {
-      continue;
-    }
+    // Total, deterministic ordering — no result may depend on the order rows
+    // came back in:
+    //   1. name score (coverage minus unexplained content), + zone bonus
+    //   2. a real price beats a 0 placeholder (many zone rows are unpriced)
+    //   3. the shorter name, i.e. the least-qualified variant
+    //   4. name A-Z, purely to make ties total
     const scored = rows
       .map((r) => ({
         row: r,
-        score: scoreMatch(tokens, r[nameField]) + (normZone && r.zone === normZone ? 0.25 : 0),
+        score: nameScore(tokens, r[nameField]) + (normZone && r.zone === normZone ? 0.25 : 0),
+        priced: (Number(r[priceField]) || 0) > 0 ? 1 : 0,
+        len: tokenize(r[nameField]).length,
+        label: String(r[nameField] || ""),
       }))
-      .sort((a, b) => b.score - a.score);
+      .sort(
+        (a, b) =>
+          b.score - a.score ||
+          b.priced - a.priced ||
+          a.len - b.len ||
+          a.label.localeCompare(b.label),
+      );
     if (scored.length && scored[0].score >= minScore) {
       const r = scored[0].row;
       results.push({
