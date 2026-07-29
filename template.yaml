@@ -30,25 +30,30 @@ Parameters:
     NoEcho: true
   AiProvider:
     Type: String
-    # Defaults to the option that WORKS, not the one we want. bedrock is the
-    # goal — it bills the AWS Activate credit instead of cash and needs no
-    # provider key — but it only works once Anthropic model access has been
-    # granted to this account in this region. Defaulting to bedrock took the
-    # whole service down on 2026-07-29: every feature returned
-    # 503 MODEL_UNAVAILABLE because the grant is not in place, and a deploy
-    # without an explicit override silently picked it up.
-    # Flip this to bedrock once the grant lands (Bedrock console -> us-east-1
-    # -> Model access -> Anthropic Claude), and keep samconfig.toml's
-    # AiProvider override in step.
-    Default: anthropic
+    # bedrock: model access was granted to this account in us-east-1 on
+    # 2026-07-29, so the option we want is now also the option that works.
+    # Calls bill the AWS Activate credit instead of cash and no provider key is
+    # held anywhere.
+    #
+    # The rule that produced the earlier default still stands: this must name
+    # the option that WORKS. Defaulting to bedrock before the grant took the
+    # whole service down on 2026-07-29 — every feature returned
+    # 503 MODEL_UNAVAILABLE and a deploy without an explicit override silently
+    # picked it up. If the grant is ever revoked, or this stack is deployed to
+    # an account or region without it, put this back to anthropic first.
+    #
+    # Four places carry this setting and must move together: here,
+    # samconfig.toml's AiProvider override, src/config/index.js (local dev
+    # default), and .env (local dev override).
+    Default: bedrock
     AllowedValues: [anthropic, bedrock]
     Description: >-
-      bedrock = production target. Model calls bill against the AWS Activate
-      credit and the Lambda role's bedrock:InvokeModel policy below, so no
-      provider API key is held anywhere. REQUIRES model access granted in the
-      Bedrock console for this region, otherwise every call returns 503
-      MODEL_UNAVAILABLE. anthropic = direct-API fallback and the safe default;
-      it bills cash, not credit.
+      bedrock = production. Model calls bill against the AWS Activate credit and
+      the Lambda role's bedrock:InvokeModel policy below, so no provider API key
+      is held anywhere. REQUIRES model access granted in the Bedrock console for
+      this region — granted us-east-1 on 2026-07-29 — otherwise every call
+      returns 503 MODEL_UNAVAILABLE. anthropic = direct-API fallback; it bills
+      cash, not credit.
   AnthropicApiKey:
     Type: String
     NoEcho: true

@@ -21,16 +21,16 @@ export const config = {
   rategenLabCollection: process.env.RATEGEN_LAB_COLLECTION || "labours",
 
   awsRegion: process.env.AWS_REGION || "us-east-1",
-  // "bedrock" (the goal — bills the AWS Activate credit, holds no provider key)
-  // or "anthropic" (direct API, bills cash). Same models, same prices.
+  // "bedrock" (bills the AWS Activate credit, holds no provider key) or
+  // "anthropic" (direct API, bills cash). Same models, same prices.
   //
-  // Defaults to the option that WORKS, matching template.yaml. Lambda always
-  // receives AI_PROVIDER from the template so this default never decides
-  // production, but leaving it as "bedrock" would keep the same trap alive for
-  // local dev and for any future caller that forgets to set it — a request
-  // would fail 503 MODEL_UNAVAILABLE for a reason nothing in the code names.
-  // Flip both here and in template.yaml when the Bedrock grant lands.
-  aiProvider: (process.env.AI_PROVIDER || "anthropic").toLowerCase(),
+  // bedrock since the model-access grant landed in us-east-1 on 2026-07-29.
+  // The rule this default follows is unchanged: name the option that WORKS.
+  // Lambda always receives AI_PROVIDER from the template so this never decides
+  // production, but a wrong default here fails local dev with a
+  // 503 MODEL_UNAVAILABLE for a reason nothing in the code names. If the grant
+  // is revoked, put this back to "anthropic" together with template.yaml.
+  aiProvider: (process.env.AI_PROVIDER || "bedrock").toLowerCase(),
   anthropicApiKey: process.env.ANTHROPIC_API_KEY || "",
   models: {
     cheap: process.env.BEDROCK_MODEL_CHEAP || "anthropic.claude-haiku-4-5",
