@@ -81,9 +81,15 @@ export const config = {
     catalogueExtract: 5,
     takeoffCommand: 1,
     budgetMatch: 1,
-    // Batches across the whole bill and can escalate a batch, so it costs more
-    // than a single-shot feature.
-    billCleanup: 2,
+    // 8, not 2. This is the one feature that is not a single model call: it
+    // batches 25 items at a time across a bill of up to 400, so ONE review can
+    // be 16 calls plus escalation to the strong tier on low-confidence batches.
+    // A full review costs ~$0.10-0.17 against ~$0.018 for a rate build-up, so a
+    // weight of 2 let a user spend roughly 7x the intended ceiling without ever
+    // hitting their quota. 8 makes a quota unit mean about the same thing
+    // whichever feature spends it. Revisit once there is measured data —
+    // this is calculated from batch sizes and token prices, not observed.
+    billCleanup: 8,
     billAsk: 1,
   },
   // Features throttled first when the credit guard trips. boqCheck and
