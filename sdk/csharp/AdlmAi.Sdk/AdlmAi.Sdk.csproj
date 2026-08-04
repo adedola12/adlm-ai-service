@@ -11,8 +11,23 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Compile against the LOWEST System.Text.Json any host provides, not the highest.
+         An assembly reference resolves upwards but never downwards:
+           .NET 8 host  (Revit 2025/2026): framework STJ is 8.0.0.0 — a 10.0.0.0 reference
+                                           is unloadable, and the default AssemblyLoadContext
+                                           allows only one STJ per simple name, so shipping
+                                           our own copy cannot rescue it either.
+           .NET 10 host (Revit 2027):      framework STJ 10.0.0.0 satisfies an 8.0.0.0 ref.
+           .NET Framework (Revit 2024):    the host's AssemblyResolve hook unifies an 8.0.0.0
+                                           ref onto whatever STJ the add-in deploys.
+         So 8.0.5 is the one floor that binds on every host. Consumers are free to deploy a
+         higher STJ; do NOT raise this to match them. -->
     <PackageReference Include="System.Text.Json" Version="8.0.5" />
-    <PackageReference Include="System.Net.Http" Version="4.3.4" />
+    <!-- No System.Net.Http package: netstandard2.0 already contracts HttpClient, and
+         the package's net46 facade (4.1.1.3) outranks the in-box 4.8 assembly
+         (4.2.0.0) in .NET Framework consumers. Those two only reconcile through a
+         binding redirect, which Revit does not honour — so the package turned every
+         SDK call inside a Revit add-in into a TypeLoadException. -->
   </ItemGroup>
 
 </Project>
