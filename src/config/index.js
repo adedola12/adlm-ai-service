@@ -64,7 +64,13 @@ export const config = {
   },
 
   usdNgnRate: num(process.env.USD_NGN_RATE, 1600),
-  defaultMonthlyQuota: num(process.env.DEFAULT_MONTHLY_QUOTA, 200),
+  // 100 quota units per account per month for every active subscriber across
+  // QUIV, HERON, MEP and RateGen. NOT 100 calls: features carry weights (see
+  // featureWeights below), so this is 100 rate build-ups, or 50 boq-checks or
+  // bill clean-ups, or 20 catalogue extracts — or any mix summing to 100.
+  // Existing tenants keep whatever monthlyQuota their document already holds;
+  // scripts/set-monthly-quota.js backfills them.
+  defaultMonthlyQuota: num(process.env.DEFAULT_MONTHLY_QUOTA, 100),
   cacheTtlSeconds: num(process.env.CACHE_TTL_SECONDS, 604800),
 
   // Quota weight consumed per feature call (cache hits consume 0).
