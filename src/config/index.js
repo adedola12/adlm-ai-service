@@ -30,7 +30,7 @@ export const config = {
   // production, but a wrong default here fails local dev with a
   // 503 MODEL_UNAVAILABLE for a reason nothing in the code names. If the grant
   // is revoked, put this back to "anthropic" together with template.yaml.
-  aiProvider: (process.env.AI_PROVIDER || "anthropic").toLowerCase(),
+  aiProvider: (process.env.AI_PROVIDER || "bedrock").toLowerCase(),
   anthropicApiKey: process.env.ANTHROPIC_API_KEY || "",
   // Bedrock cross-region INFERENCE PROFILE ids, not bare model ids. Bedrock
   // rejects the bare form with "on-demand throughput isn't supported — retry

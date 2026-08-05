@@ -45,7 +45,7 @@ Parameters:
     # Four places carry this setting and must move together: here,
     # samconfig.toml's AiProvider override, src/config/index.js (local dev
     # default), and .env (local dev override).
-    Default: anthropic
+    Default: bedrock
     AllowedValues: [anthropic, bedrock]
     Description: >-
       bedrock = production. Model calls bill against the AWS Activate credit and
@@ -94,8 +94,8 @@ Resources:
           # one an inference profile. Sonnet 4.5 not 5 — the bare-id models are
           # AWS-direct-exclusive and cannot be granted to this reseller-managed
           # account. See src/config/index.js for the full note.
-          BEDROCK_MODEL_CHEAP: anthropic.claude-haiku-4-5
-          BEDROCK_MODEL_STRONG: anthropic.claude-sonnet-5
+          BEDROCK_MODEL_CHEAP: us.anthropic.claude-haiku-4-5-20251001-v1:0
+          BEDROCK_MODEL_STRONG: us.anthropic.claude-sonnet-4-5-20250929-v1:0
           CREDIT_TOTAL_USD: "25000"
           CREDIT_EXPIRY_DATE: "2028-07-31"
       Policies:
