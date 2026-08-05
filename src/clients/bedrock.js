@@ -1,4 +1,4 @@
-import { AnthropicBedrockMantle } from "@anthropic-ai/bedrock-sdk";
+import { AnthropicBedrock } from "@anthropic-ai/bedrock-sdk";
 import Anthropic from "@anthropic-ai/sdk";
 import { config } from "../config/index.js";
 import { meterAiCall } from "../governance/meterAiCall.js";
@@ -12,10 +12,27 @@ import { ModelUnavailableError } from "../middleware/errors.js";
 // prices, so metering and the PricingRate store are unchanged — model ids are
 // recorded in Bedrock form and the "anthropic." prefix is stripped only for
 // the direct API call).
+// AnthropicBedrock (the bedrock-runtime InvokeModel path), NOT
+// AnthropicBedrockMantle. Mantle is the newer Messages-API endpoint and serves
+// only the bare-id models, which this account cannot be granted — see the note
+// on config.models. Everything this service calls goes through InvokeModel with
+// a cross-region inference profile id.
 const direct = config.aiProvider === "anthropic";
 const client = direct
   ? new Anthropic({ apiKey: config.anthropicApiKey })
-  : new AnthropicBedrockMantle({ awsRegion: config.awsRegion });
+  : new AnthropicBedrock({ awsRegion: config.awsRegion });
+
+// Bedrock inference-profile id -> the id the Anthropic API knows it by, so the
+// direct fallback still works off one configured model list. Strips the region
+// prefix ("us."), the provider prefix ("anthropic.") and the Bedrock version
+// suffix ("-v1:0"): us.anthropic.claude-haiku-4-5-20251001-v1:0
+//                → claude-haiku-4-5-20251001
+function toDirectModelId(modelId) {
+  return String(modelId)
+    .replace(/^(us|eu|apac)\./, "")
+    .replace(/^anthropic\./, "")
+    .replace(/-v\d+:\d+$/, "");
+}
 
 function extractText(message) {
   return (message.content || [])
@@ -56,7 +73,7 @@ export async function invokeJson(meta, { modelId, system, user, maxTokens = 2048
       let message;
       try {
         message = await client.messages.create({
-          model: direct ? modelId.replace(/^anthropic\./, "") : modelId,
+          model: direct ? toDirectModelId(modelId) : modelId,
           max_tokens: maxTokens,
           system: `${system}\nRespond with a single JSON object only. No prose, no markdown fences.`,
           messages: [{ role: "user", content: user }],

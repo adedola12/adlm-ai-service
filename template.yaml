@@ -45,7 +45,7 @@ Parameters:
     # Four places carry this setting and must move together: here,
     # samconfig.toml's AiProvider override, src/config/index.js (local dev
     # default), and .env (local dev override).
-    Default: bedrock
+    Default: anthropic
     AllowedValues: [anthropic, bedrock]
     Description: >-
       bedrock = production. Model calls bill against the AWS Activate credit and
@@ -89,6 +89,11 @@ Resources:
           ANTHROPIC_API_KEY: !Ref AnthropicApiKey
           AI_ACCESS_MODE: !Ref AiAccessMode
           ADLM_CLOUD_URL: https://adlmweb.onrender.com
+          # Cross-region inference PROFILE ids. Bare model ids are rejected with
+          # "on-demand throughput isn't supported"; the us. prefix is what makes
+          # one an inference profile. Sonnet 4.5 not 5 — the bare-id models are
+          # AWS-direct-exclusive and cannot be granted to this reseller-managed
+          # account. See src/config/index.js for the full note.
           BEDROCK_MODEL_CHEAP: anthropic.claude-haiku-4-5
           BEDROCK_MODEL_STRONG: anthropic.claude-sonnet-5
           CREDIT_TOTAL_USD: "25000"

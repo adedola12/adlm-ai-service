@@ -30,11 +30,21 @@ export const config = {
   // production, but a wrong default here fails local dev with a
   // 503 MODEL_UNAVAILABLE for a reason nothing in the code names. If the grant
   // is revoked, put this back to "anthropic" together with template.yaml.
-  aiProvider: (process.env.AI_PROVIDER || "bedrock").toLowerCase(),
+  aiProvider: (process.env.AI_PROVIDER || "anthropic").toLowerCase(),
   anthropicApiKey: process.env.ANTHROPIC_API_KEY || "",
+  // Bedrock cross-region INFERENCE PROFILE ids, not bare model ids. Bedrock
+  // rejects the bare form with "on-demand throughput isn't supported — retry
+  // with the ID or ARN of an inference profile", and the "us." prefix is what
+  // makes it one. Verified working on account 065634457992 in us-east-1.
+  //
+  // Sonnet 4.5 rather than Sonnet 5: the bare-id models (claude-sonnet-5,
+  // claude-opus-4-8, claude-haiku-4-5) are served only by the newer Mantle
+  // endpoint and are AWS-direct-exclusive — a reseller-managed account under
+  // another AWS Organization cannot be granted them. Confirmed by Spendbase
+  // 2026-07-28. These two are what this account can actually call.
   models: {
-    cheap: process.env.BEDROCK_MODEL_CHEAP || "anthropic.claude-haiku-4-5",
-    strong: process.env.BEDROCK_MODEL_STRONG || "anthropic.claude-sonnet-5",
+    cheap: process.env.BEDROCK_MODEL_CHEAP || "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    strong: process.env.BEDROCK_MODEL_STRONG || "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
   },
 
   adlmCloudUrl: process.env.ADLM_CLOUD_URL || "https://adlmweb.onrender.com",
