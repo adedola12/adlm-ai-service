@@ -16,9 +16,15 @@ import { runFeature } from "./featurePipeline.js";
 const BATCH_SIZE = 25;
 const MAX_ITEMS = 400;
 
-// Units a Nigerian QS bill actually uses. A unit outside this set is a finding
-// on its own — it means the take-off template leaked a raw PlanSwift unit.
-const KNOWN_UNITS = new Set(["m", "sq m", "cu m", "no", "kg", "tonne", "sum", "item", "nr", "m2", "m3"]);
+// Units a Nigerian QS bill actually uses, in the exact spelling the bill uses.
+// A unit outside this set is a finding on its own — it means the take-off
+// template leaked a raw PlanSwift unit.
+//
+// Deliberately NOT including the m2/m3/nr spellings. They mean the same thing,
+// but the model proposed "m3" for a bill written in "CU M", which would leave
+// one row inconsistent with every other line on the page. Offering only one
+// spelling per unit is what keeps a proposal droppable straight into the bill.
+const KNOWN_UNITS = new Set(["M", "SQ M", "CU M", "NO", "KG", "TONNE", "SUM", "ITEM"]);
 
 export async function billCleanup({ tenantId, product, items, zone, checks, specifications }) {
   const wanted = normalizeChecks(checks);
@@ -226,6 +232,15 @@ function sanitize(raw, batch, wanted) {
     const proposed = String(f.proposed || "").trim();
     if (!proposed) continue;
 
+    // A proposal is dropped straight into a bill that goes to a client, so an
+    // unfinished one is worse than none. The prompt forbids placeholders; this
+    // enforces it, because a prompt is guidance and this is a guarantee.
+    if (looksUnfinished(proposed)) continue;
+
+    // A unit must be spelled the way the bill spells it — "m3" in a bill
+    // written in "CU M" is a correct answer that still corrupts the page.
+    if (kind === "unit" && !KNOWN_UNITS.has(proposed.toUpperCase())) continue;
+
     let item = null;
     if (kind !== "missing") {
       item = byRef.get(String(f.itemId));
@@ -267,8 +282,30 @@ Rules:
 - "rationale" is one sentence a quantity surveyor would accept.
 - "confidence" is 0.0-1.0 and must be honest. A hedge is more useful than false certainty.
 
+- A "proposed" value is dropped verbatim into a bill of quantities that goes to
+  a client. It must therefore be FINISHED TEXT. Never emit a placeholder, a
+  blank to fill in, or an instruction to the reader — nothing in square
+  brackets, no "specify...", no "as required", no "or as specified", no "TBC".
+  If you cannot state the material, size or location definitely from the item
+  and its section, then either write the description without that detail, or
+  return no finding for that item at all. A slightly general description that
+  reads as finished English is correct; a detailed one with a gap in it is not.
+- Use a unit EXACTLY as spelled in knownUnits. Do not substitute an equivalent
+  spelling: a bill written in "CU M" must not gain a row reading "m3".
+
 Return JSON:
 {"findings": [{"kind": "description|unit|missing", "itemId": "<ref from the input, or empty for missing>", "section": "...", "proposed": "...", "rationale": "...", "confidence": 0.0, "severity": "low|medium|high"}]}`;
+
+// True when a proposed description still has a gap in it — a bracketed
+// placeholder, or wording that asks the reader to supply something. Observed
+// live on 2026-08-06: "Blockwork to [walls/partitions], [specify block size and
+// type]". Accepting that would have put the literal brackets into a tender.
+function looksUnfinished(text) {
+  const s = String(text || "");
+  if (/[[\]]/.test(s)) return true; // any square bracket
+  if (/\.{3}|…|_{2,}/.test(s)) return true; // ellipsis or fill-in-the-blank rule
+  return /\b(specify|to be confirmed|tbc|as required|as specified|insert|xxx)\b/i.test(s);
+}
 
 const clamp01 = (n) => Math.max(0, Math.min(1, Number(n) || 0));
 
