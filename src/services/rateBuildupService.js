@@ -1,6 +1,7 @@
 import { invokeJson } from "../clients/bedrock.js";
-import { pickModel, withEscalation } from "../governance/modelRouter.js";
+import { ESCALATION_CONFIDENCE_THRESHOLD, pickModel, withEscalation } from "../governance/modelRouter.js";
 import { findCandidateRates, findComputeItems, findPrices, NIGERIAN_ZONES } from "../grounding/rateLibrary.js";
+import { checkBuildup, provisionalBuild } from "./rateBuildupChecks.js";
 import { runFeature } from "./featurePipeline.js";
 
 // Smart rate build-up: library-first, model fills gaps, every component
@@ -25,10 +26,14 @@ export async function rateBuildup({ tenantId, product, description, zone, unit }
       // same work item yields the correct rate per location.
       const best = candidates[0];
       if (best && best.matchScore >= 0.85 && best.breakdown?.length) {
+        // Not checked: this is the library's own stored build-up, not a model
+        // guess, so measuring it against itself proves nothing and the checks
+        // would only misread trusted rows. `warnings` is still present so the
+        // response shape does not change between the two paths.
         return {
           model: "library-only",
           confidence: 0.95,
-          result: await buildFromLibrary(best, normZone),
+          result: { ...(await buildFromLibrary(best, normZone)), warnings: [] },
         };
       }
 
@@ -63,14 +68,46 @@ export async function rateBuildup({ tenantId, product, description, zone, unit }
             },
             { modelId: id, maxTokens: 3000, system: SYSTEM_PROMPT, user }
           );
-          return { result: out, confidence: out.confidence ?? 0.5 };
+
+          // The model grades its own work, and grades it generously: the
+          // grade 40 build-up broke the pro-rating and sanity rules and still
+          // claimed 0.95. Check its numbers and, when they fail, report a
+          // confidence low enough that withEscalation spends its one retry on
+          // the strong tier instead of shipping the bad build-up.
+          const failures = checkBuildup(provisionalBuild(out), candidates);
+          const claimed = out.confidence ?? 0.5;
+          const confidence = failures.length
+            ? Math.min(claimed, ESCALATION_CONFIDENCE_THRESHOLD - 0.1)
+            : claimed;
+
+          if (failures.length) {
+            console.warn(
+              `[rateBuildup] ${failures.length} check failure(s) on ${id}; ` +
+                `confidence ${claimed} -> ${confidence}. ${failures.join(" | ")}`,
+            );
+          }
+
+          return { result: out, confidence };
         }
       );
 
       // Re-price model-proposed components against the zone-priced master
       // lists so library prices win over model guesses wherever a match exists.
       const result = await repriceComponents(json, candidates, normZone);
-      return { model: modelId, confidence, result: { ...result, escalated } };
+
+      // Re-check against the real, repriced totals. Anything still failing
+      // survived the strong tier too, so it travels with the build-up rather
+      // than being dropped — the QS must see why the numbers are doubted.
+      const warnings = checkBuildup(result, candidates);
+      if (warnings.length) {
+        console.warn(`[rateBuildup] returning with ${warnings.length} warning(s): ${warnings.join(" | ")}`);
+      }
+
+      return {
+        model: modelId,
+        confidence: warnings.length ? Math.min(confidence, 0.5) : confidence,
+        result: { ...result, escalated, warnings },
+      };
     },
   });
 }
