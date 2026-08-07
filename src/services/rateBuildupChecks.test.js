@@ -54,7 +54,7 @@ test("pro-rating: accepts materials measured in bags or m3", () => {
 
 test("sanity: flags a rate several times the closest library rate", () => {
   const v = findSanityViolations(GRADE_40, CANDIDATES);
-  assert.ok(v.some((m) => /3\.1x the closest library rate/.test(m)), v.join(" | "));
+  assert.ok(v.some((m) => /is 3\.1x the median of/.test(m)), v.join(" | "));
 });
 
 test("sanity: flags a single component dearer than the whole library rate", () => {
@@ -67,7 +67,7 @@ test("sanity: flags a suspiciously cheap rate too", () => {
     { unit: "m3", rateNgn: 20000, components: [] },
     CANDIDATES,
   );
-  assert.ok(v.some((m) => /only 13% of the closest library rate/.test(m)), v.join(" | "));
+  assert.ok(v.some((m) => /only 13% of the median of/.test(m)), v.join(" | "));
 });
 
 test("sanity: passes a plausible rate", () => {
@@ -93,6 +93,42 @@ test("sanity: never compares across different units", () => {
 
 test("sanity: silent when the library offers nothing comparable", () => {
   assert.deepEqual(findSanityViolations(GRADE_40, []), []);
+});
+
+// The real candidate set for "concrete grade 40". Two rates tie on matchScore
+// at 0.50 — a grade 30 water-logged repair at N707,670 and the actual grade 40
+// at N413,957 — so picking the top scorer moved the yardstick by 70% on an
+// arbitrary tie-break. The median is stable.
+const REAL_CONCRETE_CANDIDATES = [
+  { description: "Concrete (1:1:2) grade 30 for repair works in water logged area", unit: "m3", totalCost: 707670.68, matchScore: 0.5 },
+  { description: "Concrete (1:1/4:1/2) grade 40 in foundation or slab.", unit: "m3", totalCost: 413957.6, matchScore: 0.5 },
+  { description: "Concrete (1:4:8) grade 10 in foundation or slab.", unit: "m3", totalCost: 179183.27, matchScore: 0.33 },
+  { description: "Concrete (1:2:4) grade 20 in column, wall or suspended floor", unit: "m3", totalCost: 177501.59, matchScore: 0.33 },
+  { description: "Concrete (1:4:5) grade 35 in suspended slab or wall.", unit: "m3", totalCost: 128733.98, matchScore: 0.33 },
+];
+
+test("sanity: a real grade 40 rate passes against the real candidate set", () => {
+  // N380,152 is what the service actually returned once pro-rating was right,
+  // and the library's own grade 40 is N413,958. That must not be flagged.
+  const v = findSanityViolations(
+    { unit: "m3", rateNgn: 380151.81, components: [] },
+    REAL_CONCRETE_CANDIDATES,
+  );
+  assert.deepEqual(v, []);
+});
+
+test("sanity: the yardstick ignores an outlier candidate", () => {
+  // Median of the five is N179,183 — not the N707,670 repair-works outlier that
+  // won the match-score tie-break.
+  const v = findSanityViolations(
+    { unit: "m3", rateNgn: 179183, components: [] },
+    REAL_CONCRETE_CANDIDATES,
+  );
+  assert.deepEqual(v, []);
+  assert.match(
+    findSanityViolations({ unit: "m3", rateNgn: 5_000_000, components: [] }, REAL_CONCRETE_CANDIDATES)[0],
+    /median of 5 comparable library rates/,
+  );
 });
 
 test("provisionalBuild: derives the rate from the model's own numbers", () => {

@@ -34,6 +34,15 @@ namespace AdlmAi
         [JsonPropertyName("profitNgn")] public double ProfitNgn { get; set; }
         [JsonPropertyName("rateNgn")] public double RateNgn { get; set; }
         [JsonPropertyName("notes")] public string Notes { get; set; }
+
+        /// <summary>
+        /// Server-side check failures that survived escalation — a component
+        /// priced per day without pro-rating, a total wildly out against the
+        /// closest library rate, a single line dearer than that whole rate.
+        /// Empty on a clean build-up. Never null-check away: a warned build-up
+        /// is still returned, so the QS must be shown why it is doubted.
+        /// </summary>
+        [JsonPropertyName("warnings")] public List<string> Warnings { get; set; }
     }
 
     public sealed class RateComponent
