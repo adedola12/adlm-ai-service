@@ -31,6 +31,27 @@ writeFileSync(
   `version = 0.1\n[default.deploy.parameters]\nstack_name = "adlm-ai-service"\nregion = "us-east-1"\nresolve_s3 = true\ncapabilities = "CAPABILITY_IAM"\nconfirm_changeset = false\nfail_on_empty_changeset = false\nparameter_overrides = "${overrides}"\n`
 );
 
+// `sam deploy` packages from .aws-sam/build when that directory exists, and
+// NEVER rebuilds it. This script did not build, so every deploy shipped
+// whatever was last built by hand — on 10 Aug 2026 that was a three-day-old
+// artifact, and two consecutive deploys reported UPDATE_COMPLETE while
+// changing nothing at all. The stack said success, the Lambda kept the old
+// code, and the only visible symptom was a feature not appearing.
+//
+// Build first, always. An unbuilt deploy is worse than a failed one because it
+// looks like it worked.
+const b = spawnSync("cmd.exe", ["/c", "sam.cmd build"], {
+  stdio: ["ignore", "pipe", "pipe"],
+  env: { ...process.env, PATH: process.env.PATH + ";C:\\Program Files\\Amazon\\AWSSAMCLI\\bin" },
+});
+if (b.status !== 0) {
+  const blog = ((b.stdout || "") + (b.stderr || "")).split(/\r?\n/);
+  console.error(blog.slice(-15).join("\n"));
+  console.error("sam build failed — nothing deployed.");
+  process.exit(b.status ?? 1);
+}
+console.log("sam build OK");
+
 try {
   const r = spawnSync("cmd.exe", ["/c", "sam.cmd deploy"], {
     stdio: ["ignore", "pipe", "pipe"],
