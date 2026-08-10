@@ -25,6 +25,7 @@ const SECTION_LABELS = {
   roofwork_items: ["roofwork", "Roof Work"],
   steelwork_items: ["steelwork", "Steelwork"],
   windowsAndDoor_items: ["windowsdoors", "Windows & Doors"],
+  mepwork_items: ["mepwork", "Mechanical, Electrical & Plumbing"],
 };
 const LABOUR_HINTS = /labour|workmanship|mason|carpenter|iron\s*bender|welder|fixing|placing|loading|unloading|foreman|headman|tradesman|crew|gang/i;
 const TOTALISH = /^\s*(sub-?total|total)\b/i;

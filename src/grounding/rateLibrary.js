@@ -29,6 +29,11 @@ const ITEM_COLLECTIONS = [
   "roofwork_items",
   "steelwork_items",
   "windowsAndDoor_items",
+  // MEP arrived in RateGen v2.7.0 (catalog 2026.08). loadItems() already
+  // tolerates a missing collection, so listing it before it is populated costs
+  // one failed find per cold container and nothing else — but without it here,
+  // no MEP build-up can ever ground, however well the collection is seeded.
+  "mepwork_items",
 ];
 
 const LABOUR_HINTS = /labour|workmanship|mason|carpenter|iron\s*bender|welder|fixing|placing|loading|unloading|foreman|headman|tradesman/i;
