@@ -23,6 +23,31 @@ const db = client.db(config.rategenMasterDb);
 
 async function upsert(collName, rows, keyField) {
   const coll = db.collection(collName);
+
+  // GUARD: this script predates zone pricing and is unsafe against it.
+  //
+  // The master collections are now zone-priced — one document per item PER
+  // ZONE (479 materials x 6 Nigerian zones = 2,874 docs), so SerialNumber is
+  // no longer unique. `updateOne` with {SerialNumber: n} would update exactly
+  // ONE arbitrary zone document per item and leave the other five holding the
+  // old price, producing a half-updated library where the same material costs
+  // different money in different zones for no reason. That is worse than not
+  // running at all, and it would be invisible until a user in the wrong zone
+  // priced a job.
+  //
+  // Refuse rather than corrupt. A zone-aware upload has to decide what a
+  // national bundled price means per zone, which is a pricing decision, not a
+  // scripting one.
+  const zoned = await coll.countDocuments({ zone: { $exists: true } });
+  if (zoned > 0) {
+    throw new Error(
+      `${collName} holds ${zoned} zone-priced documents. This script keys on ` +
+      `${keyField} alone and would update one zone per item, leaving the rest ` +
+      `stale. Use a zone-aware upload, or the website admin at ` +
+      `/admin/rategen (PUT /admin/rategen/grid), instead.`
+    );
+  }
+
   const ops = rows.map((r) => ({
     updateOne: { filter: { [keyField]: r[keyField] }, update: { $set: r }, upsert: true },
   }));
