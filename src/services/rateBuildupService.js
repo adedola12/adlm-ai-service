@@ -183,20 +183,97 @@ async function repriceComponents(json, candidates, zone = null) {
     profitPercent: Number(json.profitPercent) || 25,
     notes: json.notes || "",
     libraryCandidatesConsidered: candidates.slice(0, 3).map((c) => c.description),
-  });
+  }, candidates);
 }
 
-function totalize(build) {
+// Units that price a gang or a machine for a period rather than for one unit
+// of finished work. The prompt tells the model to pro-rate these by a daily
+// output; this is what verifies that it did.
+const PER_PERIOD_UNIT = /\b(day|days|hr|hrs|hour|hours|wk|week|weeks|month|months)\b/i;
+
+// How far out of line with the closest library rate a total has to be before
+// it is reported. Deliberately loose — a genuine 2x difference between a
+// library rate and a fresh build-up is ordinary, 3x usually is not.
+const RATE_RATIO_LIMIT = 3;
+
+/**
+ * Recompute the checks the prompt asks the model to perform on itself.
+ *
+ * The model is instructed to pro-rate per-day labour and to sanity-check its
+ * total against the library candidates it was given, but nothing verified that
+ * it had. A build-up that ignored those instructions came back indistinguishable
+ * from a clean one, so the QS was shown a suspect rate as ordinary output.
+ *
+ * These are the three failures the SDK documents on RateBuildup.Warnings:
+ * a component priced per period without pro-rating, a total wildly out against
+ * the closest library rate, and a single line dearer than the whole rate.
+ *
+ * Returns [] for a clean build-up. Never throws: a check that cannot run must
+ * not cost the caller their rate.
+ */
+function checkBuildup(build, candidates = []) {
+  const warnings = [];
+  try {
+    const components = Array.isArray(build.components) ? build.components : [];
+    const rate = Number(build.rateNgn) || 0;
+
+    for (const c of components) {
+      const unit = String(c.unit || "");
+      const qty = Number(c.quantity) || 0;
+      const isTimePriced = (c.kind === "labour" || c.kind === "plant") && PER_PERIOD_UNIT.test(unit);
+      if (isTimePriced && qty >= 1) {
+        warnings.push(
+          `"${c.name}" is priced per ${unit} and carries a quantity of ${qty}. ` +
+            `A quantity of 1 or more against a per-period unit is almost always a missing pro-rate — ` +
+            `it should be 1 divided by the output per ${unit}.`,
+        );
+      }
+    }
+
+    const reference = candidates
+      .map((c) => Number(c.totalCost) || 0)
+      .find((v) => v > 0);
+    if (reference && rate > 0) {
+      const ratio = rate / reference;
+      if (ratio >= RATE_RATIO_LIMIT || ratio <= 1 / RATE_RATIO_LIMIT) {
+        const closest = candidates.find((c) => (Number(c.totalCost) || 0) === reference);
+        warnings.push(
+          `This rate is ${ratio >= 1 ? `${ratio.toFixed(1)}x higher than` : `${(1 / ratio).toFixed(1)}x lower than`} ` +
+            `the closest library rate for similar work (${closest?.description || "library item"} ` +
+            `at ${reference.toLocaleString("en-NG")}). That usually means a units or pro-rating error.`,
+        );
+      }
+    }
+
+    for (const c of components) {
+      const total = Number(c.totalNgn) || 0;
+      if (rate > 0 && total > rate) {
+        warnings.push(
+          `"${c.name}" alone costs ${total.toLocaleString("en-NG")}, which is more than the whole ` +
+            `rate of ${rate.toLocaleString("en-NG")}. One of the two is wrong.`,
+        );
+      }
+    }
+  } catch {
+    // A failed check is not worth failing the request over.
+  }
+  return warnings;
+}
+
+function totalize(build, candidates = []) {
   const net = build.components.reduce((s, c) => s + (c.totalNgn || 0), 0);
   const overhead = round2((net * (build.overheadPercent || 0)) / 100);
   const profit = round2((net * (build.profitPercent || 0)) / 100);
-  return {
+  const totalled = {
     ...build,
     netCostNgn: round2(net),
     overheadNgn: overhead,
     profitNgn: profit,
     rateNgn: round2(net + overhead + profit),
   };
+  // Always present, empty when clean — the SDK documents it that way, and an
+  // absent field would be indistinguishable from "not checked".
+  return { ...totalled, warnings: checkBuildup(totalled, candidates) };
 }
 
 const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
