@@ -10,7 +10,7 @@ import { config } from "../src/config/index.js";
 const out = process.argv[2];
 if (!out) { console.error("usage: node scripts/backup-affected-rows.js <outfile.json>"); process.exit(1); }
 
-const NAMES = [
+const NAMES = process.env.BACKUP_NAMES ? JSON.parse(process.env.BACKUP_NAMES) : [
   "0.55mm (24SWG) sheet, coloured",
   "0.55mm (24SWG) sheet, colouredd",
   "60/70 ex PH",
