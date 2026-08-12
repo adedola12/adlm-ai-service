@@ -30,6 +30,7 @@
 import "dotenv/config";
 import { MongoClient } from "mongodb";
 import { config } from "../src/config/index.js";
+import { webDb } from "./lib/webdb.js";
 
 const APPLY = process.argv.includes("--apply");
 const SECTION = "carbon";
@@ -200,7 +201,9 @@ const ITEMS = [
 
 const client = new MongoClient(process.env.MONGO_URI);
 await client.connect();
-const web = client.db();
+// Never client.db() here: MONGO_URI names no database, so that silently
+// resolves to "test" and the website API never sees what this writes.
+const web = webDb(client);
 const items = web.collection("rategencomputeitems");
 
 // Verify every refName resolves before writing anything.

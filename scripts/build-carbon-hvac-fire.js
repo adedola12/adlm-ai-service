@@ -20,6 +20,7 @@
 import "dotenv/config";
 import { MongoClient } from "mongodb";
 import { config } from "../src/config/index.js";
+import { webDb } from "./lib/webdb.js";
 
 const APPLY = process.argv.includes("--apply");
 const SECTION = "carbon";
@@ -105,7 +106,7 @@ const ITEMS = [
 
 const web = new MongoClient(process.env.MONGO_URI);
 await web.connect();
-const items = web.db().collection("rategencomputeitems");
+const items = webDb(web).collection("rategencomputeitems");
 
 // Verify every refName resolves. A miss prices at zero silently, which is the
 // failure this guards against.

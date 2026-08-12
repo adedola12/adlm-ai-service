@@ -14,6 +14,7 @@
 import "dotenv/config";
 import { MongoClient } from "mongodb";
 import { config } from "../src/config/index.js";
+import { webDb } from "./lib/webdb.js";
 import { STATE_KEYS } from "../../ADLMWebsite/server/util/states.js";
 
 const ONE = process.argv[2] || null;
@@ -21,7 +22,7 @@ const HR = 1.4 / 8;
 
 const web = new MongoClient(process.env.MONGO_URI);
 await web.connect();
-const items = await web.db().collection("rategencomputeitems").find({}).toArray();
+const items = await webDb(web).collection("rategencomputeitems").find({}).toArray();
 await web.close();
 
 console.log(`compute items: ${items.length}`);
