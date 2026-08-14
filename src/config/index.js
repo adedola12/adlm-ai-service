@@ -21,10 +21,23 @@ export const config = {
   rategenLabCollection: process.env.RATEGEN_LAB_COLLECTION || "labours",
 
   awsRegion: process.env.AWS_REGION || "us-east-1",
-  // "bedrock" (production — AWS credit) or "anthropic" (direct API fallback
-  // while Bedrock model access is being unblocked). Same models, same prices.
+  // "bedrock" (production — bills the AWS Activate credit and authenticates
+  // with the Lambda's IAM role) or "anthropic" (direct API; bills cash against
+  // a prepaid balance). Same models and same unit prices either way, so
+  // metering and the PricingRate store are unchanged by the choice.
   aiProvider: (process.env.AI_PROVIDER || "bedrock").toLowerCase(),
   anthropicApiKey: process.env.ANTHROPIC_API_KEY || "",
+  // Automatic provider fallback. When Bedrock refuses the model itself —
+  // access not granted for this account and region — a call that would have
+  // returned 503 MODEL_UNAVAILABLE is re-run on the direct API instead and the
+  // user still gets an answer. Set AI_PROVIDER_FALLBACK=false to make a missing
+  // grant fail loudly (useful while proving the grant actually works).
+  // Needs ANTHROPIC_API_KEY: without one there is nothing to fall back to.
+  aiProviderFallback: process.env.AI_PROVIDER_FALLBACK !== "false",
+  // How long a fallback lasts before Bedrock is tried again. The fix for a
+  // missing grant is someone ticking a box in the console, so spend returns to
+  // the AWS credit on its own rather than waiting for a redeploy.
+  aiProviderRetryMs: num(process.env.AI_PROVIDER_RETRY_MS, 15 * 60 * 1000),
   models: {
     cheap: process.env.BEDROCK_MODEL_CHEAP || "anthropic.claude-haiku-4-5",
     strong: process.env.BEDROCK_MODEL_STRONG || "anthropic.claude-sonnet-5",

@@ -17,6 +17,13 @@ export async function meterAiCall(meta, fn) {
   const started = Date.now();
   let units = { inputTokens: 0, outputTokens: 0, pages: 0 };
   let result;
+  // Priced once, in the finally block, and reused for the return value. It
+  // used to be priced a second time on the way out, unguarded — so a database
+  // hiccup threw away a model answer we had already paid for and turned it
+  // into a 500 (which the plugins render as "AI service is unreachable").
+  // Metering failures must never take the feature down; that now holds on both
+  // paths, and the call costs one PricingRate read instead of two.
+  let pricedUsd = 0;
   try {
     const out = await fn();
     result = out.result;
@@ -25,6 +32,7 @@ export async function meterAiCall(meta, fn) {
     const latencyMs = Date.now() - started;
     try {
       const usd = await costUsd({ service: meta.service, model: meta.model, units });
+      pricedUsd = usd;
       await AiUsageEvent.create({
         tenantId: meta.tenantId || "system",
         product: meta.product || "",
@@ -44,8 +52,7 @@ export async function meterAiCall(meta, fn) {
       console.error("[meterAiCall] failed to record usage event:", err.message);
     }
   }
-  const usd = await costUsd({ service: meta.service, model: meta.model, units });
-  return { result, units, costUsd: usd };
+  return { result, units, costUsd: pricedUsd };
 }
 
 // Cache hits are recorded too (zero cost) so cache effectiveness is measurable.

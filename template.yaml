@@ -30,29 +30,45 @@ Parameters:
     NoEcho: true
   AiProvider:
     Type: String
-    # Defaults to the option that WORKS, not the one we want. bedrock is the
-    # goal — it bills the AWS Activate credit instead of cash and needs no
-    # provider key — but it only works once Anthropic model access has been
-    # granted to this account in this region. Defaulting to bedrock took the
-    # whole service down on 2026-07-29: every feature returned
-    # 503 MODEL_UNAVAILABLE because the grant is not in place, and a deploy
-    # without an explicit override silently picked it up.
-    # Flip this to bedrock once the grant lands (Bedrock console -> us-east-1
-    # -> Model access -> Anthropic Claude), and keep samconfig.toml's
-    # AiProvider override in step.
-    Default: anthropic
+    # bedrock is the default again, which is only safe because the service now
+    # falls back on its own (see src/clients/bedrock.js). The history is worth
+    # keeping: defaulting to bedrock took the whole service down on 2026-07-29
+    # — every feature returned 503 MODEL_UNAVAILABLE because model access was
+    # never granted — so the default was reverted to anthropic. That left the
+    # prepaid API key as the single point of failure, and on 2026-08-14 QUIV
+    # and RateGen users got "AI service is unreachable" on every prompt.
+    # Neither provider is dependable enough to be the only one. The service now
+    # leads with bedrock and re-runs on the direct API when Bedrock refuses the
+    # model, so a missing grant costs cash instead of costing an outage.
+    # Set AI_PROVIDER_FALLBACK=false when you want to PROVE the grant works
+    # rather than have the fallback quietly paper over it.
+    Default: bedrock
     AllowedValues: [anthropic, bedrock]
     Description: >-
-      bedrock = production target. Model calls bill against the AWS Activate
-      credit and the Lambda role's bedrock:InvokeModel policy below, so no
-      provider API key is held anywhere. REQUIRES model access granted in the
-      Bedrock console for this region, otherwise every call returns 503
-      MODEL_UNAVAILABLE. anthropic = direct-API fallback and the safe default;
-      it bills cash, not credit.
+      Which provider is tried FIRST. bedrock = production target: calls bill
+      against the AWS Activate credit and authenticate with the Lambda role's
+      bedrock policy below, so no provider API key is load-bearing. It needs
+      Anthropic model access granted in the Bedrock console for this region;
+      without the grant the service serves from the direct API instead and says
+      so on GET /health/ai. anthropic = pin every call to the direct API, which
+      bills cash rather than credit.
+  AiProviderFallback:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: >-
+      Whether a Bedrock model-access refusal automatically re-runs the call on
+      the direct Anthropic API (needs AnthropicApiKey). true = an ungranted
+      model costs cash instead of costing an outage. false = the refusal
+      surfaces as 503 MODEL_UNAVAILABLE, which is what you want while proving
+      the Bedrock grant is actually in place.
   AnthropicApiKey:
     Type: String
     NoEcho: true
     Default: ""
+    Description: >-
+      Fallback credential, no longer the primary path. Keep it funded: it is
+      what serves QUIV, HERON and RateGen if the Bedrock grant lapses.
   AiAccessMode:
     Type: String
     Default: any-subscription
@@ -81,6 +97,7 @@ Resources:
           JWT_ACCESS_SECRET: !Ref JwtAccessSecret
           ADMIN_API_KEY: !Ref AdminApiKey
           AI_PROVIDER: !Ref AiProvider
+          AI_PROVIDER_FALLBACK: !Ref AiProviderFallback
           ANTHROPIC_API_KEY: !Ref AnthropicApiKey
           AI_ACCESS_MODE: !Ref AiAccessMode
           ADLM_CLOUD_URL: https://adlmweb.onrender.com

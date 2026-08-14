@@ -2,13 +2,13 @@
 // on the command line or in chat. Writes a transient samconfig.toml (which
 // stays gitignored) for SAM to pick up, then removes it.
 //
-//   node scripts/deploy.js            (AiProvider=anthropic, current default)
-//   node scripts/deploy.js bedrock    (switch provider once Bedrock unblocks)
+//   node scripts/deploy.js            (AiProvider=bedrock, the default)
+//   node scripts/deploy.js anthropic  (pin every call to the direct API)
 import "dotenv/config";
 import { writeFileSync, unlinkSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 
-const provider = process.argv[2] || "anthropic";
+const provider = process.argv[2] || "bedrock";
 const P = {
   MongoUri: process.env.MONGO_URI,
   RategenMongoUri: process.env.RATEGEN_MONGO_URI,
@@ -17,10 +17,25 @@ const P = {
   AdminApiKey: process.env.ADMIN_API_KEY,
   AiProvider: provider,
   AnthropicApiKey: process.env.ANTHROPIC_API_KEY,
+  AiProviderFallback: process.env.AI_PROVIDER_FALLBACK || "true",
   AlarmEmail: process.env.ALARM_EMAIL || "dolapo836@gmail.com",
 };
+
+// The Anthropic key is the FALLBACK path now, not the primary one, so an empty
+// value is a warning rather than a hard stop — a Bedrock-only deploy is valid.
+// Everything else is still load-bearing and blocks the deploy.
+const OPTIONAL = new Set(["AnthropicApiKey"]);
 for (const [k, v] of Object.entries(P)) {
-  if (!v) { console.error(`Missing .env value for ${k}`); process.exit(1); }
+  if (v) continue;
+  if (OPTIONAL.has(k)) {
+    console.warn(
+      `Warning: no ${k} in .env — deploying with no fallback provider. If the Bedrock model grant lapses, every AI call fails.`,
+    );
+    P[k] = "";
+    continue;
+  }
+  console.error(`Missing .env value for ${k}`);
+  process.exit(1);
 }
 
 const overrides = Object.entries(P)

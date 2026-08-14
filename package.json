@@ -6,6 +6,7 @@
   "main": "src/lambda.js",
   "scripts": {
     "dev": "node src/local.js",
+    "test": "node --test \"src/**/*.test.js\"",
     "seed:pricing": "node scripts/seed-pricing.js"
   },
   "dependencies": {
