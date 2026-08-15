@@ -1,5 +1,5 @@
 import { AnthropicBedrockMantle } from "@anthropic-ai/bedrock-sdk";
-import Anthropic from "@anthropic-ai/sdk";
+// import Anthropic from "@anthropic-ai/sdk";   // direct-API fallback — disabled, see below
 import { config } from "../config/index.js";
 import { meterAiCall } from "../governance/meterAiCall.js";
 import { ModelUnavailableError } from "../middleware/errors.js";
@@ -7,15 +7,21 @@ import { ModelUnavailableError } from "../middleware/errors.js";
 // Single model-call entry point. There is deliberately NO unmetered invoke —
 // every model call flows through meterAiCall by construction.
 //
-// Providers: "bedrock" (production — AWS credentials from the Lambda role or
-// env) or "anthropic" (direct API fallback; same Claude models, same unit
-// prices, so metering and the PricingRate store are unchanged — model ids are
-// recorded in Bedrock form and the "anthropic." prefix is stripped only for
-// the direct API call).
-const direct = config.aiProvider === "anthropic";
-const client = direct
-  ? new Anthropic({ apiKey: config.anthropicApiKey })
-  : new AnthropicBedrockMantle({ awsRegion: config.awsRegion });
+// ALL AI now runs on Bedrock (AWS credit). The direct-Anthropic-API fallback is
+// disabled: it billed a separate Anthropic account, and when that account ran out
+// of credit every AI call failed — the provider returned 400 "credit balance is
+// too low", this service logged it as an unhandled error and returned a bare 500,
+// and the SDK retried twice before telling the user "AI service is unreachable".
+// One provider, funded by AWS credit, removes that whole failure mode.
+//
+// To restore the fallback: uncomment the import and the two `direct` lines below,
+// then set AI_PROVIDER=anthropic and ANTHROPIC_API_KEY. Model ids stay in Bedrock
+// form; the "anthropic." prefix is stripped only for the direct call, and unit
+// prices are identical so metering and PricingRate are unaffected either way.
+// const direct = config.aiProvider === "anthropic";
+const direct = false;
+const client = // direct ? new Anthropic({ apiKey: config.anthropicApiKey }) :
+  new AnthropicBedrockMantle({ awsRegion: config.awsRegion });
 
 function extractText(message) {
   return (message.content || [])

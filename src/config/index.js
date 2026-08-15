@@ -21,13 +21,29 @@ export const config = {
   rategenLabCollection: process.env.RATEGEN_LAB_COLLECTION || "labours",
 
   awsRegion: process.env.AWS_REGION || "us-east-1",
-  // "bedrock" (production — AWS credit) or "anthropic" (direct API fallback
-  // while Bedrock model access is being unblocked). Same models, same prices.
-  aiProvider: (process.env.AI_PROVIDER || "bedrock").toLowerCase(),
+  // Always "bedrock" — all AI runs on AWS credit. AI_PROVIDER is deliberately no
+  // longer read: a deployed AI_PROVIDER=anthropic silently moved every call onto a
+  // separately-billed Anthropic account, and its credit running dry surfaced to
+  // users as "AI service is unreachable". See src/clients/bedrock.js to restore
+  // the direct-API fallback (kept commented, not deleted).
+  aiProvider: "bedrock",
+  // aiProvider: (process.env.AI_PROVIDER || "bedrock").toLowerCase(),
   anthropicApiKey: process.env.ANTHROPIC_API_KEY || "",
+  // Bedrock needs INFERENCE PROFILE ids ("us." prefixed), not bare foundation-model
+  // ids. The previous defaults could not be invoked at all: "anthropic.claude-haiku-4-5"
+  // returns ValidationException (no such identifier — the dated suffix is required) and
+  // "anthropic.claude-sonnet-5" returns AccessDenied without a profile. That is why the
+  // service was pointed at the direct Anthropic API instead of Bedrock being fixed.
+  //
+  // VERIFIED 2026-08-15 against this account, us-east-1:
+  //   cheap  — invokes successfully.
+  //   strong — still AccessDenied ("not available for this account"); Bedrock model
+  //            access must be granted in the console before escalation can work. Every
+  //            task tier in modelRouter.js defaults to "cheap", so only low-confidence
+  //            escalation is affected, and it fails loudly via ModelUnavailableError.
   models: {
-    cheap: process.env.BEDROCK_MODEL_CHEAP || "anthropic.claude-haiku-4-5",
-    strong: process.env.BEDROCK_MODEL_STRONG || "anthropic.claude-sonnet-5",
+    cheap: process.env.BEDROCK_MODEL_CHEAP || "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    strong: process.env.BEDROCK_MODEL_STRONG || "us.anthropic.claude-sonnet-5",
   },
 
   adlmCloudUrl: process.env.ADLM_CLOUD_URL || "https://adlmweb.onrender.com",
