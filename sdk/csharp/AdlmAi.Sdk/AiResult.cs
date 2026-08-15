@@ -14,6 +14,13 @@ namespace AdlmAi
         QuotaReached,
         /// <summary>Feature temporarily throttled by the platform credit guard.</summary>
         Throttled,
+        /// <summary>
+        /// The provider refused the call — Bedrock model access is not granted for the
+        /// account, or the model id is not enabled in the region. Terminal: nothing in
+        /// the request is wrong and no retry can help until someone grants access, so
+        /// this must NOT be reported as the service being unreachable.
+        /// </summary>
+        ModelUnavailable,
         /// <summary>Service unreachable and nothing cached. Degrade quietly.</summary>
         Unavailable,
         /// <summary>Request was invalid (caller bug).</summary>

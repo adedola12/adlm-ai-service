@@ -261,10 +261,46 @@ namespace AdlmAi
                 if (text.Contains("CREDIT_THROTTLED"))
                     return AiResult<T>.Of(AiStatus.Throttled,
                         "This AI feature is temporarily limited. Please try again later.");
+
+                // Model access not granted. This is terminal — retrying cannot grant a
+                // Bedrock permission — and it must not fall through to Degrade(), which
+                // reports "AI service is unreachable". That message sent a real
+                // investigation after the network while the service was up and answering:
+                // the only thing missing was a model-access grant in the Bedrock console.
+                // Prefer the server's own wording; it names the model and the fix.
+                if (text.IndexOf("MODEL_UNAVAILABLE", StringComparison.OrdinalIgnoreCase) >= 0)
+                    return AiResult<T>.Of(AiStatus.ModelUnavailable,
+                        ExtractServerMessage(text)
+                        ?? "AI model access is not granted for this account. "
+                         + "Grant Bedrock model access for this region, then try again.");
+
                 return null; // retry
             }
             if ((int)status >= 500) return null; // retry
             return AiResult<T>.Of(AiStatus.Unavailable, $"AI service returned {(int)status}.");
+        }
+
+        /// <summary>
+        /// Pulls the service's own "message" out of an error body. The server phrases
+        /// these for a person to act on (which model, and where to grant access), so
+        /// repeating it beats inventing a vaguer one here. Null when absent/unparseable.
+        /// </summary>
+        private static string ExtractServerMessage(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return null;
+            try
+            {
+                using (var doc = JsonDocument.Parse(text))
+                {
+                    if (doc.RootElement.TryGetProperty("message", out var m))
+                    {
+                        var s = m.GetString();
+                        return string.IsNullOrWhiteSpace(s) ? null : s;
+                    }
+                }
+            }
+            catch (JsonException) { /* non-JSON body — caller falls back */ }
+            return null;
         }
 
         private AiResult<T> Degrade<T>(string cacheKey)

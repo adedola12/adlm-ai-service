@@ -84,19 +84,12 @@ Resources:
           ANTHROPIC_API_KEY: !Ref AnthropicApiKey
           AI_ACCESS_MODE: !Ref AiAccessMode
           ADLM_CLOUD_URL: https://adlmweb.onrender.com
-          # These ids are for bedrock-MANTLE (the AnthropicBedrockMantle client in
-          # src/clients/bedrock.js), NOT bedrock-runtime. The two endpoints have
-          # different model-id spaces: inference-profile ids ("us."/"global." prefixed)
-          # are a bedrock-runtime concept and Mantle returns 404 not_found for them.
-          # Probed against this account on 2026-08-15 — these bare ids are the only
-          # ones Mantle recognises (they return 403 permission_error, i.e. known but
-          # not granted; every "us."-prefixed variant returned 404).
-          #
-          # BLOCKED: "anthropic.claude-haiku-4-5 is not available for this account."
-          # Bedrock model access must be granted (Bedrock console -> us-east-1 ->
-          # Model access -> Anthropic Claude) before any AI call can succeed.
-          BEDROCK_MODEL_CHEAP: anthropic.claude-haiku-4-5
-          BEDROCK_MODEL_STRONG: anthropic.claude-sonnet-5
+          # bedrock-runtime INFERENCE PROFILE ids — the "us." prefix is required.
+          # Both verified invoking on this account in us-east-1 on 2026-08-15.
+          # Do NOT set these to Sonnet 5 or Opus 4.8: those are AWS-exclusive and are
+          # not enabled for this account (AccessDeniedException).
+          BEDROCK_MODEL_CHEAP: us.anthropic.claude-haiku-4-5-20251001-v1:0
+          BEDROCK_MODEL_STRONG: us.anthropic.claude-sonnet-4-6
           CREDIT_TOTAL_USD: "25000"
           CREDIT_EXPIRY_DATE: "2028-07-31"
       Policies:

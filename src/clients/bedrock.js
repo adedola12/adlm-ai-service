@@ -1,4 +1,10 @@
-import { AnthropicBedrockMantle } from "@anthropic-ai/bedrock-sdk";
+// AnthropicBedrock targets bedrock-runtime (InvokeModel). It replaced
+// AnthropicBedrockMantle, which targets the separate bedrock-mantle endpoint — a
+// different model-id space that 404s inference-profile ids. Mantle was the real
+// reason "Bedrock doesn't work here": this account HAS Claude access (Haiku 4.5,
+// Sonnet 4.5/4.6, Opus 4.5 all invoke fine), it was simply being asked over an
+// endpoint that could not see those models. Verified 2026-08-15.
+import { AnthropicBedrock } from "@anthropic-ai/bedrock-sdk";
 // import Anthropic from "@anthropic-ai/sdk";   // direct-API fallback — disabled, see below
 import { config } from "../config/index.js";
 import { meterAiCall } from "../governance/meterAiCall.js";
@@ -21,7 +27,7 @@ import { ModelUnavailableError } from "../middleware/errors.js";
 // const direct = config.aiProvider === "anthropic";
 const direct = false;
 const client = // direct ? new Anthropic({ apiKey: config.anthropicApiKey }) :
-  new AnthropicBedrockMantle({ awsRegion: config.awsRegion });
+  new AnthropicBedrock({ awsRegion: config.awsRegion });
 
 function extractText(message) {
   return (message.content || [])

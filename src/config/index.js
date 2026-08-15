@@ -29,17 +29,16 @@ export const config = {
   aiProvider: "bedrock",
   // aiProvider: (process.env.AI_PROVIDER || "bedrock").toLowerCase(),
   anthropicApiKey: process.env.ANTHROPIC_API_KEY || "",
-  // These are bedrock-MANTLE ids (see src/clients/bedrock.js), not bedrock-runtime
-  // ids. Do NOT "fix" them to inference profiles: Mantle returns 404 not_found for
-  // "us."/"global." prefixed ids, while these bare ids are recognised. Probed on
-  // 2026-08-15.
+  // bedrock-runtime INFERENCE PROFILE ids (the "us." prefix is required — bare
+  // foundation-model ids return "The provided model identifier is invalid").
+  // Both verified working on this account in us-east-1 on 2026-08-15.
   //
-  // BLOCKED: both currently return 403 "not available for this account" — Bedrock
-  // model access has never been granted to this account, which is the real reason
-  // the service was running on the direct Anthropic API instead.
+  // Not Sonnet 5 / Opus 4.8: those are AWS-exclusive and are NOT enabled for this
+  // account, so escalation to them would fail. Sonnet 4.6 is the newest strong tier
+  // actually available, and is Sonnet-priced rather than Opus-priced.
   models: {
-    cheap: process.env.BEDROCK_MODEL_CHEAP || "anthropic.claude-haiku-4-5",
-    strong: process.env.BEDROCK_MODEL_STRONG || "anthropic.claude-sonnet-5",
+    cheap: process.env.BEDROCK_MODEL_CHEAP || "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    strong: process.env.BEDROCK_MODEL_STRONG || "us.anthropic.claude-sonnet-4-6",
   },
 
   adlmCloudUrl: process.env.ADLM_CLOUD_URL || "https://adlmweb.onrender.com",
