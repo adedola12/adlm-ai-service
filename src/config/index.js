@@ -29,21 +29,17 @@ export const config = {
   aiProvider: "bedrock",
   // aiProvider: (process.env.AI_PROVIDER || "bedrock").toLowerCase(),
   anthropicApiKey: process.env.ANTHROPIC_API_KEY || "",
-  // Bedrock needs INFERENCE PROFILE ids ("us." prefixed), not bare foundation-model
-  // ids. The previous defaults could not be invoked at all: "anthropic.claude-haiku-4-5"
-  // returns ValidationException (no such identifier — the dated suffix is required) and
-  // "anthropic.claude-sonnet-5" returns AccessDenied without a profile. That is why the
-  // service was pointed at the direct Anthropic API instead of Bedrock being fixed.
+  // These are bedrock-MANTLE ids (see src/clients/bedrock.js), not bedrock-runtime
+  // ids. Do NOT "fix" them to inference profiles: Mantle returns 404 not_found for
+  // "us."/"global." prefixed ids, while these bare ids are recognised. Probed on
+  // 2026-08-15.
   //
-  // VERIFIED 2026-08-15 against this account, us-east-1:
-  //   cheap  — invokes successfully.
-  //   strong — still AccessDenied ("not available for this account"); Bedrock model
-  //            access must be granted in the console before escalation can work. Every
-  //            task tier in modelRouter.js defaults to "cheap", so only low-confidence
-  //            escalation is affected, and it fails loudly via ModelUnavailableError.
+  // BLOCKED: both currently return 403 "not available for this account" — Bedrock
+  // model access has never been granted to this account, which is the real reason
+  // the service was running on the direct Anthropic API instead.
   models: {
-    cheap: process.env.BEDROCK_MODEL_CHEAP || "us.anthropic.claude-haiku-4-5-20251001-v1:0",
-    strong: process.env.BEDROCK_MODEL_STRONG || "us.anthropic.claude-sonnet-5",
+    cheap: process.env.BEDROCK_MODEL_CHEAP || "anthropic.claude-haiku-4-5",
+    strong: process.env.BEDROCK_MODEL_STRONG || "anthropic.claude-sonnet-5",
   },
 
   adlmCloudUrl: process.env.ADLM_CLOUD_URL || "https://adlmweb.onrender.com",
