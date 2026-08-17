@@ -121,6 +121,15 @@ namespace AdlmAi
         [JsonPropertyName("modules")] public List<string> Modules { get; set; }
         [JsonPropertyName("levels")] public List<string> Levels { get; set; }
         [JsonPropertyName("automatable")] public List<string> Automatable { get; set; }
+
+        /// <summary>
+        /// Element type names available per module in the open model, e.g.
+        /// "WallQty" -> ["100 WALL", "150 WALL", "230 WALL"]. Without these the model has
+        /// nothing to split by and can only answer type "All", so "separate all wall
+        /// types" is unanswerable however the prompt is worded.
+        /// </summary>
+        [JsonPropertyName("typesByModule")]
+        public Dictionary<string, List<string>> TypesByModule { get; set; }
     }
 
     public sealed class TakeoffCommandResult
