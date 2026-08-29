@@ -11,30 +11,73 @@ import { connectAiDb } from "../src/db/connect.js";
 import { breakdownFill } from "../src/services/breakdownFillService.js";
 import { AiUsageEvent } from "../src/models/index.js";
 
-// Descriptions taken verbatim from a HERON take-off, including the two the
-// first-principles calculator has no recipe for — the case this endpoint exists
-// for. "Door Opening" is deliberately included: it names no physical work, and
-// a correct answer returns nothing for it rather than inventing content.
+// A bill-shaped sample: items sit under heading trails, and two of them are
+// elliptical continuations — the two conventions that decide whether this
+// endpoint works on a real BoQ rather than on a tidy list of sentences.
+// Descriptions are written to match the shape of live Nigerian bills; no client
+// bill is committed here, because this repository is public. Point the script at
+// your own export to test against real content:
+//   node scripts/test-breakdown-fill.js my-boq.json
 const SAMPLE = [
   {
-    ref: "A",
-    description:
-      "Vibrated hollow sancrete blocks in cement mortar (1:6) laid in stretcher bond Walls 230mm thick, vertical",
-    unit: "SQ M",
-    quantity: 234.51,
-    rateNgn: 90888.7,
-    known: [{ name: "Hollow sandcrete block 230mm", quantity: 12.5, unit: "nr", unitPriceNgn: 1200 }],
+    ref: "1",
+    section: "UNREINFORCED CONCRETE",
+    headings: ["E10: MIXING/CASTING/CURING/IN-SITU CONCRETE", "10MPa/19mm concrete"],
+    description: "Column bases; thickness not exceeding 50mm",
+    unit: "m3",
+    quantity: 10,
+    rateNgn: 75000,
   },
-  { ref: "A1", description: "Wall Rendering", unit: "SQ M", quantity: 469.02, rateNgn: 6062.94 },
-  { ref: "C", description: "Door Opening", unit: "SQ M", quantity: 53.33, rateNgn: 1345.43 },
   {
-    ref: "C3",
-    description: "12mm bar and 10mm link bar in lintel",
-    unit: "Kg",
-    quantity: 46.6,
+    ref: "2",
+    section: "UNREINFORCED CONCRETE",
+    headings: ["10MPa/19mm concrete", "20MPa/19mm concrete"],
+    // Opens in lower case: continues the item above it.
+    description: "strip foundations; poured on or against earth and in steps",
+    unit: "m3",
+    quantity: 15,
+    rateNgn: 75000,
+  },
+  {
+    ref: "3",
+    section: "M10: SAND CEMENT/CONCRETE/SCREEDS/TOPPINGS",
+    headings: ["Mortar, cement and sand (1:3) screeded bed.", "30mm work to floors on concrete base; one coat"],
+    // "Skirting" alone is meaningless — the trail makes it a screeded skirting.
+    description: "Skirting",
+    unit: "m",
+    quantity: 655,
+    rateNgn: 450,
+  },
+  {
+    ref: "4",
+    section: "M40: STONE/QUARRY/CERAMIC TILING/MOSAIC",
+    headings: ["10mm Porcelain/Vitrified tiles laid to 2mm spacing and fixed with adhesive"],
+    description: "Patterned, width exceeding 300; (Bedrooms)",
+    unit: "m2",
+    quantity: 276,
+    rateNgn: 18500,
+    known: [{ name: "Porcelain floor tile 600x600", quantity: 1.05, unit: "m2", unitPriceNgn: 9500 }],
+  },
+  {
+    ref: "5",
+    section: "M40: STONE/QUARRY/CERAMIC TILING/MOSAIC",
+    headings: ["10mm Porcelain/Vitrified tiles laid to 2mm spacing and fixed with adhesive"],
+    // Ditto: the same tile as item 4, in a different room.
+    description: "Ditto; width exceeding 300; (Toilets)",
+    unit: "m²",
+    quantity: 48,
+    rateNgn: 18500,
+  },
+  {
+    ref: "6",
+    section: "SUBSTRUCTURE",
+    headings: ["Nature and location of the work"],
+    // Names no physical work: the right answer is nothing at all.
+    description: "The contractor is referred to the Architectural and Structural drawings",
+    unit: "",
+    quantity: 0,
     rateNgn: 0,
   },
-  { ref: "FF", description: "Railing", unit: "M", quantity: 18.2, rateNgn: 13573.98 },
 ];
 
 const items = process.argv[2] ? JSON.parse(readFileSync(process.argv[2], "utf8")) : SAMPLE;
@@ -60,7 +103,10 @@ console.log(
 
 for (const item of r.items) {
   const src = items.find((i) => String(i.ref) === item.ref);
-  console.log(`\n[${item.ref}] ${String(src?.description || "").slice(0, 70)}  (${item.unit})`);
+  const trail = (src?.headings || []).slice(-1).join("");
+  console.log(
+    `\n[${item.ref}] ${trail ? trail.slice(0, 44) + "  >  " : ""}${String(src?.description || "").slice(0, 60)}  (${item.unit})`,
+  );
   if (!item.lines.length) {
     console.log("  — nothing proposed —");
   } else {

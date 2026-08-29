@@ -24,11 +24,33 @@ import { runFeature } from "./featurePipeline.js";
 //   - Lines the caller already has are passed in as `known` and are never
 //     re-proposed. This fills a breakdown; it does not overwrite one.
 //
-// items: [{ ref, description, unit, quantity?, rateNgn?, known?: [{ name, quantity?, unit?, unitPriceNgn? }] }]
+// A real BoQ description is a FRAGMENT, not a sentence. Measured against five
+// live Nigerian bills, two conventions decide whether this feature works at all:
+//
+//   1. Items sit under unpriced heading lines that carry the actual material:
+//        M10: SAND CEMENT/CONCRETE/SCREEDS/TOPPINGS
+//          Mortar, cement and sand (1:3) screeded bed.
+//            30mm work to floors on concrete base; one coat
+//        B | Skirting | 655 | m
+//      "Skirting" alone cannot be broken down. "10MPa/19mm concrete" above
+//      "Column bases; thickness not exceeding 50mm" is what names the concrete.
+//   2. "Ditto", "as above" and a description simply opening in lower case all
+//      continue the item before them (90 such references across those bills).
+//
+// So the caller passes the heading trail and the items in bill order, and the
+// model is given the item's context rather than a fragment. Nothing is rewritten
+// deterministically: a textual ditto-substitution produces sentences no QS
+// wrote ("Patterned, width exceeding 300; (Bedrooms); width exceeding 300;
+// (Toilets)"), and the model reads the two fields correctly when told what they
+// mean.
+//
+// items: [{ ref, description, unit, quantity?, rateNgn?, section?, headings?: [],
+//           known?: [{ name, quantity?, unit?, unitPriceNgn? }] }]
 const BATCH_SIZE = 12;
 const MAX_ITEMS = 200;
 const MAX_KNOWN = 12;
 const MAX_LINES_PER_ITEM = 14;
+const MAX_HEADINGS = 4;
 // findPrices reads at most 20 names per call, so lookups are chunked to match.
 const PRICE_CHUNK = 20;
 
@@ -38,6 +60,12 @@ export async function breakdownFill({ tenantId, product, items, zone }) {
   const normItems = (items || []).slice(0, MAX_ITEMS).map((it, i) => ({
     ref: String(it.ref ?? i + 1),
     description: String(it.description || "").trim().slice(0, 300),
+    section: String(it.section || "").trim().slice(0, 120),
+    // Nearest heading last — the prompt is told the last one is the most specific.
+    headings: (Array.isArray(it.headings) ? it.headings : [])
+      .slice(-MAX_HEADINGS)
+      .map((h) => String(h || "").trim().slice(0, 200))
+      .filter(Boolean),
     unit: normalizeUnit(it.unit),
     quantity: Number(it.quantity) || 0,
     rateNgn: Number(it.rateNgn) || 0,
@@ -62,8 +90,14 @@ export async function breakdownFill({ tenantId, product, items, zone }) {
     // answer must not be re-bought because a number moved.
     input: {
       zone: normZone,
-      items: normItems.map(
-        (i) => `${i.description}|${i.unit}|${i.known.map((k) => k.name).sort().join(",")}`.toLowerCase(),
+      // Context is part of the question: two items both reading "Skirting" break
+      // down differently under a screed heading and under a tiling heading, so
+      // the trail belongs in the key.
+      items: normItems.map((i) =>
+        `${i.section}|${i.headings.join(">")}|${i.description}|${i.unit}|${i.known
+          .map((k) => k.name)
+          .sort()
+          .join(",")}`.toLowerCase(),
       ),
     },
     compute: async () => {
@@ -76,10 +110,15 @@ export async function breakdownFill({ tenantId, product, items, zone }) {
         const batch = normItems.slice(i, i + BATCH_SIZE);
         const payload = {
           zone: normZone,
-          items: batch.map((b) => ({
+          items: batch.map((b, n) => ({
             ref: b.ref,
+            section: b.section || null,
+            headings: b.headings,
             description: b.description,
             unit: b.unit,
+            // Elliptical descriptions only. Sent as context, never substituted:
+            // the model is told what it means and reads it correctly.
+            continuesFrom: isElliptical(b.description) ? previousDescription(normItems, i + n) : null,
             alreadyCovered: b.known.map((k) => k.name),
           })),
         };
@@ -143,7 +182,13 @@ export async function breakdownFill({ tenantId, product, items, zone }) {
 
 const SYSTEM_PROMPT = `You are a Nigerian quantity surveyor's assistant. For each bill item you are given, list what the described work is MADE OF: the materials it consumes and the labour it takes, per ONE unit of that item, following BESMM 4R measurement conventions.
 
-You are given "items", each { ref, description, unit, alreadyCovered }.
+You are given "items", each { ref, section, headings, description, unit, continuesFrom, alreadyCovered }.
+
+READ THE ITEM FIRST. A bill description is a fragment, not a sentence:
+- "headings" are the unpriced lines the item sits under, nearest LAST, and they usually carry the material the description omits. Under headings ["Mortar, cement and sand (1:3) screeded bed.", "30mm work to floors on concrete base; one coat"], a description of "Skirting" is a 30mm cement-sand screeded skirting — not a tiled one. Under "10MPa/19mm concrete", "Column bases; thickness not exceeding 50mm" is 10MPa concrete.
+- "section" is the work section (e.g. "REINFORCED CONCRETE", "M40: STONE/QUARRY/CERAMIC TILING").
+- "continuesFrom", when present, is the item immediately above: this description begins "Ditto", "as above", or in lower case, and means the SAME work varied by what follows it. "Ditto; width exceeding 300; (Toilets)" after a porcelain floor tile item is that same tile, in the toilets.
+- The item is the DESCRIPTION, refined by its context — never break down the heading on its own.
 
 Rules:
 - EVERY quantity is per ONE unit of the item (one m2, one m3, one m, one nr) — never for the whole item, never per day, per gang or per batch.
@@ -156,6 +201,32 @@ Rules:
 
 Return JSON:
 {"items":[{"ref":"...","confidence":0.0,"note":"<12 words max, assumptions only>","lines":[{"kind":"material|labour","name":"...","quantity":0.0,"unit":"..."}]}]}`;
+
+// A description that opens with "Ditto"/"as above", or simply in lower case,
+// carries on from the item before it — both forms appear throughout real bills
+// ("Ditto; width exceeding 300; (Toilets)", "maximum depth not exceeding
+// 1.50m..." under an item that named the excavation).
+// Two separate tests on purpose. The keywords are case-insensitive because bills
+// write "Ditto" far more often than "ditto"; the lower-case test must NOT be,
+// because opening in lower case is itself the signal that the line continues the
+// one above.
+// "d°" and "Do." are the ditto marks bills actually use. Matching a bare "do"
+// would swallow any description starting "Double...", so the abbreviation is
+// only recognised with its degree sign or its full stop.
+const CONTINUATION_WORD = /^\s*(ditto\b|d°|do\.|as\s+(above|before|described))/i;
+const OPENS_LOWER_CASE = /^\s*[a-z]/;
+function isElliptical(description) {
+  const d = String(description || "");
+  return CONTINUATION_WORD.test(d) || OPENS_LOWER_CASE.test(d);
+}
+
+// The nearest preceding item's description, with its own trail, so a chain of
+// dittos still resolves to something a QS would recognise.
+function previousDescription(items, index) {
+  const prev = items[index - 1];
+  if (!prev) return null;
+  return [...prev.headings.slice(-2), prev.description].filter(Boolean).join(" > ").slice(0, 300);
+}
 
 // Model output is never trusted as shape: refs must exist, numbers must be
 // numbers, and a line that merely renames something the caller already has is
@@ -315,8 +386,8 @@ function checkFill(lines, coverage) {
 function normalizeUnit(unit) {
   const u = String(unit || "").trim().toLowerCase().replace(/\s+/g, "");
   const map = {
-    sqm: "m2", m2: "m2", sqmt: "m2",
-    cum: "m3", m3: "m3", cumt: "m3",
+    sqm: "m2", m2: "m2", sqmt: "m2", "m²": "m2", "sq.m": "m2", sqm2: "m2",
+    cum: "m3", m3: "m3", cumt: "m3", "m³": "m3", "cu.m": "m3",
     m: "m", lm: "m", rm: "m",
     no: "nr", nr: "nr", number: "nr", each: "nr",
     kg: "kg", tonne: "tonne", ton: "tonne", t: "tonne",
