@@ -118,7 +118,7 @@ export async function breakdownFill({ tenantId, product, items, zone }) {
             unit: b.unit,
             // Elliptical descriptions only. Sent as context, never substituted:
             // the model is told what it means and reads it correctly.
-            continuesFrom: isElliptical(b.description) ? previousDescription(normItems, i + n) : null,
+            continuesFrom: isElliptical(b.description) ? anchorDescription(normItems, i + n) : null,
             alreadyCovered: b.known.map((k) => k.name),
           })),
         };
@@ -187,7 +187,7 @@ You are given "items", each { ref, section, headings, description, unit, continu
 READ THE ITEM FIRST. A bill description is a fragment, not a sentence:
 - "headings" are the unpriced lines the item sits under, nearest LAST, and they usually carry the material the description omits. Under headings ["Mortar, cement and sand (1:3) screeded bed.", "30mm work to floors on concrete base; one coat"], a description of "Skirting" is a 30mm cement-sand screeded skirting — not a tiled one. Under "10MPa/19mm concrete", "Column bases; thickness not exceeding 50mm" is 10MPa concrete.
 - "section" is the work section (e.g. "REINFORCED CONCRETE", "M40: STONE/QUARRY/CERAMIC TILING").
-- "continuesFrom", when present, is the item immediately above: this description begins "Ditto", "as above", or in lower case, and means the SAME work varied by what follows it. "Ditto; width exceeding 300; (Toilets)" after a porcelain floor tile item is that same tile, in the toilets.
+- "continuesFrom", when present, is the item this one continues: the description says "ditto" (anywhere in it), "as above", or simply opens in lower case, and means the SAME work varied by what the description itself states. "Ditto; width exceeding 300; (Toilets)" after a porcelain floor tile item is that same tile, in the toilets. "75mm ditto." after "100mm diameter black pipe." is a 75mm black pipe — the varying dimension is in the description, everything else comes from continuesFrom.
 - The item is the DESCRIPTION, refined by its context — never break down the heading on its own.
 
 Rules:
@@ -210,22 +210,42 @@ Return JSON:
 // write "Ditto" far more often than "ditto"; the lower-case test must NOT be,
 // because opening in lower case is itself the signal that the line continues the
 // one above.
-// "d°" and "Do." are the ditto marks bills actually use. Matching a bare "do"
-// would swallow any description starting "Double...", so the abbreviation is
-// only recognised with its degree sign or its full stop.
-const CONTINUATION_WORD = /^\s*(ditto\b|d°|do\.|as\s+(above|before|described))/i;
+// "ditto" is NOT anchored to the start, because in services bills it almost
+// never is: an MEP bill runs "100mm diameter black pipe." and then "75mm
+// ditto.", "65mm ditto.", "50mm ditto." — dozens in a row, with the varying
+// dimension in front. Anchoring the match, as this first did, left every one of
+// those items reading as "75mm ditto." with no idea what the pipe was.
+//
+// "d°" and "Do." are the other marks bills use. A bare "do" is deliberately not
+// matched: it would swallow "Double glazed aluminium window".
+const CONTINUATION_WORD = /(\bditto\b|\bd°|\bdo\.|^\s*as\s+(above|before|described))/i;
+// Opening in lower case is its own continuation signal ("maximum depth not
+// exceeding 1.50m"), and that test must stay case-sensitive.
 const OPENS_LOWER_CASE = /^\s*[a-z]/;
 function isElliptical(description) {
   const d = String(description || "");
   return CONTINUATION_WORD.test(d) || OPENS_LOWER_CASE.test(d);
 }
 
-// The nearest preceding item's description, with its own trail, so a chain of
-// dittos still resolves to something a QS would recognise.
-function previousDescription(items, index) {
-  const prev = items[index - 1];
-  if (!prev) return null;
-  return [...prev.headings.slice(-2), prev.description].filter(Boolean).join(" > ").slice(0, 300);
+// How far back to walk for the item a ditto chain hangs off. MEP runs of
+// twenty-odd fittings off one parent are ordinary.
+const MAX_DITTO_HOPS = 24;
+
+// The description a continuation actually refers to: the nearest preceding item
+// that is NOT itself a continuation, with its heading trail.
+//
+// Walking back matters as much as the match does. "65mm ditto." follows "75mm
+// ditto.", which follows "100mm diameter black pipe." — handing back the
+// immediately preceding line would resolve one ditto to another and tell the
+// model nothing. Null when the chain has no anchor within reach: the heading
+// trail is then the only context, which is honest, rather than a guess.
+function anchorDescription(items, index) {
+  for (let i = index - 1, hops = 0; i >= 0 && hops < MAX_DITTO_HOPS; i--, hops++) {
+    const prev = items[i];
+    if (!prev || !prev.description || isElliptical(prev.description)) continue;
+    return [...prev.headings.slice(-2), prev.description].filter(Boolean).join(" > ").slice(0, 300);
+  }
+  return null;
 }
 
 // Model output is never trusted as shape: refs must exist, numbers must be
