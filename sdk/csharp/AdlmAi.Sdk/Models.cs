@@ -45,6 +45,32 @@ namespace AdlmAi
         [JsonPropertyName("warnings")] public List<string> Warnings { get; set; }
     }
 
+    /// <summary>
+    /// One row of the CALLER's own price library, sent with a rate-buildup
+    /// request so the model can name a component the way the caller already
+    /// holds it.
+    ///
+    /// The service grounds on ADLM's master price lists, which it reads for
+    /// itself. What it cannot see is what a particular user has added or
+    /// renamed locally, and that gap is what produces duplicates: the model
+    /// names a component its own way, the caller's lookup misses, and the line
+    /// is saved as a second copy of an item the user already had. Sending the
+    /// names closes the loop — the model reuses them verbatim, so the lookup
+    /// hits.
+    ///
+    /// Names and units only. No prices: the caller re-prices every matched line
+    /// from its own library regardless, and a price list is the caller's
+    /// commercial data, which has no reason to leave the machine to answer
+    /// this question.
+    /// </summary>
+    public sealed class LibraryItemRef
+    {
+        /// <summary>"material" or "labour".</summary>
+        [JsonPropertyName("kind")] public string Kind { get; set; }
+        [JsonPropertyName("name")] public string Name { get; set; }
+        [JsonPropertyName("unit")] public string Unit { get; set; }
+    }
+
     public sealed class RateComponent
     {
         [JsonPropertyName("kind")] public string Kind { get; set; }

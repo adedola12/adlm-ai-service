@@ -6,14 +6,26 @@ import { runFeature } from "./featurePipeline.js";
 // Smart rate build-up: library-first, model fills gaps, every component
 // carries its source ("library" | "model") so the QS can see exactly what
 // was looked up and what was inferred.
-export async function rateBuildup({ tenantId, product, description, zone, unit }) {
+export async function rateBuildup({ tenantId, product, description, zone, unit, libraryItems }) {
   const normZone = NIGERIAN_ZONES.includes(zone) ? zone : null;
+  const callerLibrary = Array.isArray(libraryItems) ? libraryItems : [];
 
   return runFeature({
     tenantId,
     product,
     feature: "rateBuildup",
-    input: { description: description.trim().toLowerCase(), zone: normZone, unit: unit || null },
+    // callerLibrary belongs in the cache key. It changes the names the model is
+    // told to reuse, so two callers with different libraries must not share an
+    // answer — and a caller whose library has grown since last time wants a
+    // fresh build-up rather than the cached one that missed the item they just
+    // added. cacheKey hashes this whole object, so carrying the list here costs
+    // key size nothing.
+    input: {
+      description: description.trim().toLowerCase(),
+      zone: normZone,
+      unit: unit || null,
+      callerLibrary,
+    },
     compute: async () => {
       const [candidates, recipes] = await Promise.all([
         findCandidateRates(description),
@@ -48,6 +60,9 @@ export async function rateBuildup({ tenantId, product, description, zone, unit }
         workItem: { description, unit: unit || null, zone: normZone },
         libraryCandidates: candidates,
         libraryRecipes: recipes,
+        // The caller's own rows, absent when none were sent so the prompt is
+        // byte-identical to what older clients produced.
+        ...(callerLibrary.length ? { callerLibrary } : {}),
       });
 
       const { result: json, confidence, modelId, escalated } = await withEscalation(
@@ -79,6 +94,7 @@ const SYSTEM_PROMPT = `You are a Nigerian quantity surveyor's assistant assembli
 
 Rules:
 - Prefer library data. Only infer quantities/prices the library does not cover, and mark those inferred.
+- NAMING. You may be given "callerLibrary": rows the caller already holds in their own price library, as {kind, name, unit}. When a component you are emitting is one of those items, copy that "name" EXACTLY, character for character, including its bracketing, spacing and capitalisation. Do not tidy it, expand an abbreviation, or add a size the caller's name omits. The caller matches your component names against that library to price the line; a name that differs by so much as a space is saved as a second copy of an item they already have, and their library fills with near-duplicates. If a component is not in callerLibrary, name it plainly and consistently — do not invent a variant of a name that is in there.
 - Output realistic Nigerian market values.
 - EVERY quantity is per ONE unit of the work item (one m2, one m3, one m...), never per day, per gang or per batch.
 - Library labour and plant are priced per DAY or per HOUR for a whole gang. You MUST pro-rate them to one unit by dividing by a daily output: quantity = 1 / (units produced per day). A quantity of 1 or more against a "per day" unit is almost always a missing pro-rate — check it before returning.
