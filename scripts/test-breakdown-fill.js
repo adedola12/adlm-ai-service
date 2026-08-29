@@ -68,6 +68,37 @@ const SAMPLE = [
     quantity: 48,
     rateNgn: 18500,
   },
+  // A services chain: the parent names the pipe, and each item after it varies
+  // only the diameter with "ditto" AFTER the dimension. Nothing here is client
+  // content — it is the shape every MEP bill uses.
+  {
+    ref: "M1",
+    section: "PLUMBING / MECHANICAL INSTALLATION",
+    headings: ["Pipe works"],
+    description: "100mm diameter black pipe.",
+    unit: "m",
+    quantity: 690,
+    rateNgn: 8200,
+  },
+  {
+    ref: "M2",
+    section: "PLUMBING / MECHANICAL INSTALLATION",
+    headings: ["Pipe works"],
+    description: "75mm ditto.",
+    unit: "m",
+    quantity: 280,
+    rateNgn: 6800,
+  },
+  {
+    ref: "M3",
+    section: "PLUMBING / MECHANICAL INSTALLATION",
+    headings: ["Pipe works"],
+    // Dittos a ditto: must resolve back to the 100mm pipe, not to M2.
+    description: "65mm ditto.",
+    unit: "m",
+    quantity: 160,
+    rateNgn: 5500,
+  },
   {
     ref: "6",
     section: "SUBSTRUCTURE",
