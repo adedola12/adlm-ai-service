@@ -20,6 +20,10 @@ const TASK_TIERS = {
   // low-confidence batch (see billCleanupService) rather than shipping vague
   // rewrites — but it starts cheap like everything else.
   billCleanup: "cheap",
+  // Breakdown quantities land straight in a budget the QS prices from, so a
+  // low-confidence batch escalates (see breakdownFillService) rather than
+  // shipping a guess — but, like everything else, it starts cheap.
+  breakdownFill: "cheap",
 };
 
 export const ESCALATION_CONFIDENCE_THRESHOLD = 0.6;

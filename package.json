@@ -6,7 +6,8 @@
   "main": "src/lambda.js",
   "scripts": {
     "dev": "node src/local.js",
-    "seed:pricing": "node scripts/seed-pricing.js"
+    "seed:pricing": "node scripts/seed-pricing.js",
+    "test:breakdown": "node scripts/test-breakdown-fill.js"
   },
   "dependencies": {
     "@anthropic-ai/bedrock-sdk": "^0.32.0",

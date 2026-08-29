@@ -7,6 +7,7 @@ import { catalogueExtract } from "../services/catalogueService.js";
 import { takeoffCommand } from "../services/takeoffCommandService.js";
 import { budgetMatch } from "../services/budgetMatchService.js";
 import { billCleanup } from "../services/billCleanupService.js";
+import { breakdownFill } from "../services/breakdownFillService.js";
 import { billAsk } from "../services/billAskService.js";
 import { billFeedback } from "../services/billFeedbackService.js";
 
@@ -107,6 +108,18 @@ router.post("/bill-cleanup", async (req, res, next) => {
         specifications,
       })
     );
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/breakdown-fill", async (req, res, next) => {
+  try {
+    const { items, zone } = req.body || {};
+    if (!Array.isArray(items) || !items.length) {
+      return res.status(400).json({ error: "items[] is required", code: "BAD_INPUT" });
+    }
+    res.json(await breakdownFill({ tenantId: req.tenantId, product: req.product, items, zone }));
   } catch (err) {
     next(err);
   }

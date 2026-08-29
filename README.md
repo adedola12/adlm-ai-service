@@ -11,6 +11,7 @@ underneath. See `CLAUDE.md` for the architectural rules.
 | `POST /rate-buildup` | Smart rate build-up (library-first, per-component source attribution) |
 | `POST /boq-check` | BoQ market check vs RateGen benchmarks (per-item verdict + reason) |
 | `POST /outliers` | Outlier & error detection (statistical + semantic, every flag has a reason) |
+| `POST /breakdown-fill` | Breakdown fill — what a BoQ item is made of, per one unit, from its own description (library-priced, never sized to hit the rate) |
 | `POST /catalogue/extract` | Supplier catalogue extraction (Textract + classification/mapping) |
 | `POST /forecast` | Stub — returns `NOT_YET_AVAILABLE` |
 
