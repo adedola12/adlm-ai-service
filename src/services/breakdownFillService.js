@@ -222,7 +222,7 @@ const CONTINUATION_WORD = /(\bditto\b|\bd°|\bdo\.|^\s*as\s+(above|before|descri
 // Opening in lower case is its own continuation signal ("maximum depth not
 // exceeding 1.50m"), and that test must stay case-sensitive.
 const OPENS_LOWER_CASE = /^\s*[a-z]/;
-function isElliptical(description) {
+export function isElliptical(description) {
   const d = String(description || "");
   return CONTINUATION_WORD.test(d) || OPENS_LOWER_CASE.test(d);
 }
@@ -239,7 +239,7 @@ const MAX_DITTO_HOPS = 24;
 // immediately preceding line would resolve one ditto to another and tell the
 // model nothing. Null when the chain has no anchor within reach: the heading
 // trail is then the only context, which is honest, rather than a guess.
-function anchorDescription(items, index) {
+export function anchorDescription(items, index) {
   for (let i = index - 1, hops = 0; i >= 0 && hops < MAX_DITTO_HOPS; i--, hops++) {
     const prev = items[i];
     if (!prev || !prev.description || isElliptical(prev.description)) continue;

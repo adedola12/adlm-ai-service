@@ -8,6 +8,7 @@ import { takeoffCommand } from "../services/takeoffCommandService.js";
 import { budgetMatch } from "../services/budgetMatchService.js";
 import { billCleanup } from "../services/billCleanupService.js";
 import { breakdownFill } from "../services/breakdownFillService.js";
+import { boqFill } from "../services/boqFillService.js";
 import { billAsk } from "../services/billAskService.js";
 import { billFeedback } from "../services/billFeedbackService.js";
 
@@ -108,6 +109,20 @@ router.post("/bill-cleanup", async (req, res, next) => {
         specifications,
       })
     );
+  } catch (err) {
+    next(err);
+  }
+});
+
+// BoQ fill: a client's own bill, filled from the product's measured quantities.
+// The model only picks measured lines; quantities are summed in the service.
+router.post("/boq-fill", async (req, res, next) => {
+  try {
+    const { rows, candidates } = req.body || {};
+    if (!Array.isArray(rows) || !rows.length || !Array.isArray(candidates) || !candidates.length) {
+      return res.status(400).json({ error: "rows[] and candidates[] are required", code: "BAD_INPUT" });
+    }
+    res.json(await boqFill({ tenantId: req.tenantId, product: req.product, rows, candidates }));
   } catch (err) {
     next(err);
   }

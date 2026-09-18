@@ -24,6 +24,9 @@ const TASK_TIERS = {
   // low-confidence batch escalates (see breakdownFillService) rather than
   // shipping a guess — but, like everything else, it starts cheap.
   breakdownFill: "cheap",
+  // A wrong quantity in a client bill is contractual, so a low-confidence batch
+  // escalates (see boqFillService) — but it starts cheap.
+  boqFill: "cheap",
 };
 
 export const ESCALATION_CONFIDENCE_THRESHOLD = 0.6;
