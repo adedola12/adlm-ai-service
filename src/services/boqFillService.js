@@ -38,7 +38,7 @@ import { isElliptical, anchorDescription } from "./breakdownFillService.js";
 // so rows carry their heading trail, and "Ditto"/lower-case continuations are
 // sent with the item they continue, as context — never substituted.
 //
-// rows:       [{ id, description, unit, headings?: [], section? }]
+// rows:       [{ id, description, unit, headings?: [], section?, continuesFrom? }]
 // candidates: [{ id, description, unit, qty, level?, type? }]
 const BATCH_SIZE = 20;
 const MAX_ROWS = 400;
@@ -53,6 +53,9 @@ export async function boqFill({ tenantId, product, rows, candidates }) {
     description: String(r.description || "").slice(0, 300),
     unit: String(r.unit || "").trim(),
     section: r.section ? String(r.section).slice(0, 120) : null,
+    // A caller that splits a bill across requests (the HTTP API cuts a request
+    // off at 30 s) sends the anchor itself; otherwise it is found in this call.
+    continuesFrom: r.continuesFrom ? String(r.continuesFrom).slice(0, 300) : null,
     headings: (Array.isArray(r.headings) ? r.headings : [])
       .map((h) => String(h || "").slice(0, 160))
       .filter(Boolean)
@@ -72,7 +75,7 @@ export async function boqFill({ tenantId, product, rows, candidates }) {
   // Context and shortlist are deterministic, so they are built before the
   // cache lookup and the key covers exactly what the model will see.
   const prepared = normRows.map((r, i) => {
-    const continuesFrom = isElliptical(r.description) ? anchorDescription(normRows, i) : null;
+    const continuesFrom = isElliptical(r.description) ? r.continuesFrom || anchorDescription(normRows, i) : null;
     const context = [r.section, ...r.headings, continuesFrom, r.description].filter(Boolean).join(" ");
     return { ...r, continuesFrom, shortlist: shortlist(r.unit, context, groups) };
   });
@@ -83,7 +86,7 @@ export async function boqFill({ tenantId, product, rows, candidates }) {
     feature: "boqFill",
     input: {
       rows: prepared.map((r) =>
-        `${r.section || ""}|${r.headings.join(">")}|${r.description}|${r.unit}|${r.shortlist.join(",")}`.toLowerCase(),
+        `${r.section || ""}|${r.headings.join(">")}|${r.continuesFrom || ""}|${r.description}|${r.unit}|${r.shortlist.join(",")}`.toLowerCase(),
       ),
       // Quantities are in the key although the model never sees them: the
       // cached result carries the summed quantity, and a re-measured model
