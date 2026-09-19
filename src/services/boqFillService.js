@@ -205,15 +205,40 @@ function shortlist(rowUnit, context, groups) {
 // Shared significant words, numbers weighted double: "225mm" vs "150mm" is the
 // whole difference between two blockwork lines.
 function words(text) {
-  return new Set(
-    String(text || "")
-      .toLowerCase()
-      .replace(/[^a-z0-9. ]/g, " ")
-      .split(/\s+/)
-      .map((w) => w.replace(/^\.+|\.+$/g, ""))
-      .filter((w) => w.length > 1 && !STOPWORDS.has(w)),
-  );
+  const out = new Set();
+  for (const raw of String(text || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9. ]/g, " ")
+    .split(/\s+/)) {
+    const w = raw.replace(/^\.+|\.+$/g, "");
+    if (w.length <= 1 || STOPWORDS.has(w)) continue;
+    out.add(w);
+    // Bills spell out what takeoffs abbreviate, and the other way round: a
+    // client's "damp proof membrane" has no word in common with QUIV's "DPM",
+    // and "10mm diameter" none with "Y10".
+    for (const e of ABBREVIATIONS[w] || []) out.add(e);
+    const bar = /^[ytr](\d{1,2})$/.exec(w);
+    if (bar) out.add(`${bar[1]}mm`);
+    const stem = w.length > 4 && w.endsWith("s") ? w.slice(0, -1) : null;
+    if (stem) out.add(stem);
+  }
+  return out;
 }
+const ABBREVIATIONS = {
+  dpm: ["damp", "proof", "membrane"],
+  dpc: ["damp", "proof", "course"],
+  brc: ["mesh", "fabric"],
+  pop: ["plaster", "paris"],
+  rc: ["reinforced", "concrete"],
+  rcc: ["reinforced", "concrete"],
+  conc: ["concrete"],
+  reinf: ["reinforcement"],
+  rebar: ["reinforcement", "bar"],
+  fwk: ["formwork"],
+  exc: ["excavation"],
+  wc: ["water", "closet"],
+  whb: ["wash", "hand", "basin"],
+};
 function overlap(a, b) {
   let n = 0;
   for (const w of a) if (b.has(w)) n += /\d/.test(w) ? 2 : 1;
@@ -266,10 +291,34 @@ function sanitize(rawFills, batch, groupById) {
     const confidence = clamp01(Number(f.confidence));
     if (confidence < MIN_CONFIDENCE) continue;
     const offered = new Set(row.shortlist);
+    const rowElements = elementsIn(row.description);
     const members = new Map();
+    let trimmed = 0;
     for (const p of Array.isArray(f.picks) ? f.picks : []) {
       const g = groupById.get(String(p?.groupId));
       if (!g || !offered.has(g.id) || convertFactor(g.unit, row.unit) == null) continue;
+      // A line that names its element takes only that element. On a live bill the
+      // model answered "Slab" with slab + columns + beams + lintels (the sum of the
+      // frame) at 0.85 — plausible to a model, wrong to a QS, and invisible once
+      // written. So it is enforced here rather than asked for.
+      const gEls = elementsIn(g.description);
+      if (rowElements.size && gEls.size && ![...gEls].some((e) => rowElements.has(e))) {
+        trimmed++;
+        continue;
+      }
+      // A line that names no element is still read under its sheet and stage: the
+      // Frames sheet's "10mm diameter" is the frame's bars, not the ground beam's
+      // (billed on the substructure sheet) or the roof beam's (billed under roof).
+      if (!rowElements.size && [...gEls].some((e) => stageExcludes(row.section).has(e))) {
+        trimmed++;
+        continue;
+      }
+      // Bar sizes are a qualifier the model reads loosely: a "20mm diameter" line was
+      // answered with 12 and 16mm bars when no 20mm bar had been measured.
+      if (!diameterFits(row.description, g)) {
+        trimmed++;
+        continue;
+      }
       // Levels narrow a group, never widen it; an unknown level name matches nothing.
       const levels =
         Array.isArray(p.levels) && p.levels.length ? new Set(p.levels.map((l) => String(l).toLowerCase())) : null;
@@ -277,9 +326,67 @@ function sanitize(rawFills, batch, groupById) {
     }
     if (!members.size) continue;
     seen.add(row.id);
-    out.push({ rowId: row.id, members: [...members.values()], confidence, reason: String(f.reason || "").slice(0, 160) });
+    const reason = String(f.reason || "").slice(0, 140) + (trimmed ? " (other elements left out)" : "");
+    out.push({ rowId: row.id, members: [...members.values()], confidence, reason });
   }
   return out;
+}
+
+// Structural elements a bill line and a measured line can name. Compound names
+// are taken out before the simple ones, so "ground beam" is not also a "beam":
+// a frame's "Sides of beam" is not the substructure's ground beam.
+const ELEMENTS = [
+  ["ground beam", /\bground\s*beams?\b/g],
+  ["roof beam", /\broof\s*beams?\b/g],
+  ["pile cap", /\bpile\s*caps?\b/g],
+  ["lintel", /\blintels?\b/g],
+  ["column", /\bcolumns?\b/g],
+  ["beam", /\bbeams?\b/g],
+  ["slab", /\bslabs?\b/g],
+  ["stair", /\bstair(s|case|cases)?\b/g],
+  ["raft", /\braft\b/g],
+  ["pile", /\bpiles?\b/g],
+];
+const SUBSTRUCTURE_ONLY = ["ground beam", "pile cap", "pile", "raft"];
+export function stageExcludes(section) {
+  const s = String(section || "").toLowerCase();
+  const out = new Set();
+  if (/\bframes?\b|super-?structure/.test(s)) for (const e of [...SUBSTRUCTURE_ONLY, "roof beam"]) out.add(e);
+  else if (/\broof/.test(s)) for (const e of SUBSTRUCTURE_ONLY) out.add(e);
+  else if (/sub-?structure|foundation/.test(s)) out.add("roof beam");
+  return out;
+}
+
+// Bar diameters a text names: "Y12", "12mm diameter", "12 diameter", "12mm Ø", and
+// ranges ("10mm - 25mm diameter"). Returns { set, min, max } or null.
+function diametersIn(text) {
+  const t = String(text || "").toLowerCase();
+  const range = /(\d{1,2})\s*mm\s*(?:-|–|to)\s*(\d{1,2})\s*mm\s*(?:ø|dia)/.exec(t);
+  if (range) return { set: null, min: Number(range[1]), max: Number(range[2]) };
+  const set = new Set();
+  for (const m of t.matchAll(/\b[ytr](\d{1,2})\b/g)) set.add(Number(m[1]));
+  for (const m of t.matchAll(/\b(\d{1,2})\s*(?:mm)?\s*(?:ø|dia\b|diameter)/g)) set.add(Number(m[1]));
+  return set.size ? { set, min: null, max: null } : null;
+}
+export function diameterFits(rowText, group) {
+  const row = diametersIn(rowText);
+  const g = diametersIn(`${group.description} ${group.type || ""}`);
+  if (!row || !g || !g.set) return true; // one side names no bar size
+  const fits = (d) => (row.set ? row.set.has(d) : d >= row.min && d <= row.max);
+  return [...g.set].some(fits);
+}
+
+export function elementsIn(text) {
+  let t = String(text || "").toLowerCase();
+  const found = new Set();
+  for (const [name, re] of ELEMENTS) {
+    if (re.test(t)) {
+      found.add(name);
+      t = t.replace(re, " ");
+    }
+    re.lastIndex = 0;
+  }
+  return found;
 }
 
 function finalize(pick, row) {
@@ -325,7 +432,8 @@ You are given:
 For each row, pick the candidate(s) whose measured work IS the work the bill line describes:
 - A pick is { groupId, levels }. levels null = every level of that candidate (the normal case). Set levels only when the bill line (or its section/headings) names specific floors; copy level names exactly from the candidate.
 - Pick SEVERAL candidates when the bill line covers them together: the same work measured as different types ("225mm sandcrete blockwork" = every 225mm blockwork candidate). Never add candidates of different work to reach a total.
-- Respect every qualifier: thickness, size, mix/grade, element (column vs beam vs slab), location (internal/external), and material. "150mm blockwork" is not "225mm blockwork"; "concrete in beams" is not "concrete in columns".
+- Respect every qualifier: thickness, size, mix/grade, element (column vs beam vs slab), location (internal/external), and material. "150mm blockwork" is not "225mm blockwork"; "concrete in beams" is not "concrete in columns". A line that names one element (slab) never takes other elements (columns, beams, lintels) with it: that would be the frame total, not the slab.
+- The section may start with the SHEET name ("Frames", "Substructure(2)", "BLOCK A1"): a Frames line never takes substructure work (ground beams, foundations), and a substructure line never takes the frame.
 - Units are already checked: every shortlisted candidate is in the row's unit or one the service converts (kg to tonnes). Do not lower confidence for a kg/tonne difference.
 - Leave a row out when no candidate is the same work. A wrong fill is worse than an empty one: the QS will measure it.
 - confidence: 0.9+ exact same work, 0.7-0.89 same work described differently, 0.5-0.69 probable but a qualifier is unclear. Below 0.5 leave the row out.

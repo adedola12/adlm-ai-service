@@ -8,7 +8,7 @@ import "dotenv/config";
 import { readFileSync } from "node:fs";
 import mongoose from "mongoose";
 import { connectAiDb } from "../src/db/connect.js";
-import { boqFill, convertFactor } from "../src/services/boqFillService.js";
+import { boqFill, convertFactor, elementsIn, stageExcludes, diameterFits } from "../src/services/boqFillService.js";
 
 // A client bill written the way Nigerian bills are: headings carry the
 // material, items are fragments, one line is a ditto. No client bill is
@@ -50,6 +50,20 @@ check("kg -> t converts by 1/1000", convertFactor("kg", "t") === 0.001);
 check("m2 never converts to m3", convertFactor("m2", "m3") === null);
 check("sqm == m2", convertFactor("sqm", "m2") === 1);
 check("nr == No.", convertFactor("No.", "nr") === 1);
+// Rules learnt from live bills (see boqFillService): one element per named line,
+// the sheet/stage decides for lines that name none, bar sizes are a hard qualifier.
+check("DPC slab is a slab", elementsIn("Reinforced DPC slab 150mm").has("slab"));
+check("ground beam is not also a beam", !elementsIn("Ground Beam – Formwork").has("beam"));
+check("Frames sheet excludes ground beams", stageExcludes("Frames › IN-SITU CONCRETE").has("ground beam"));
+check("Frames sheet excludes roof beams", stageExcludes("Frames").has("roof beam"));
+check("substructure keeps ground beams", !stageExcludes("Substructure(2)").has("ground beam"));
+const g = (d) => ({ description: d, type: null });
+check("10mm diameter takes Y10", diameterFits("10mm diameter", g("Beams – Reinforcement Y10")));
+check("20mm diameter refuses Y12", !diameterFits("20mm diameter", g("Slab – Reinforcement Y12")));
+check("range 10mm - 25mm takes Y16", diameterFits("10mm - 25mm  diameter", g("Columns – Reinforcement Y16")));
+check("'10 diameter in roof beam' takes Y10", diameterFits("10 diameter in roof beam", g("Roof Beam – Reinforcement Y10")));
+check("no size on the line: any bar", diameterFits("Bars in beams, all sizes", g("Beams – Reinforcement Y16")));
+check("150mm slab is not a bar size", diameterFits("20mm diameter", g("Slab – Concrete 150mm")));
 
 const input = process.argv[2] ? JSON.parse(readFileSync(process.argv[2], "utf8")) : { rows: ROWS, candidates: CANDIDATES };
 
