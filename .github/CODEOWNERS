@@ -1,0 +1,4 @@
+# Every change needs the release approver's review before it reaches the default branch.
+# Release gate: see adedola12/AdlmWeb docs/RELEASE_GATE.md.
+* @RichardEnoch
+/.github/ @RichardEnoch
