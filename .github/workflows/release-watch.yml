@@ -1,0 +1,79 @@
+# Release gate: instant alert when this repo's branch protection is changed.
+#
+# Part of the ADLM release gate (adedola12/AdlmWeb docs/RELEASE_GATE.md). Branch protection on main requires the release
+# approver's review, with no exemption for admins. The repo owner can still
+# loosen or delete that rule, since GitHub always lets the owner do that. This
+# workflow makes sure the approver hears about it the moment it happens, and
+# writes it to the locked audit bucket, where nobody can delete it.
+#
+# It does not stand alone: the hourly watcher Lambda in the AdlmReleaseGate
+# stack independently checks main through GitHub's public API, so disabling
+# Actions or deleting this file does not silence the gate either.
+#
+# The role ARN is written here rather than kept as a secret on purpose:
+# deleting a secret must not be a quiet way to break the alert.
+
+name: Release gate watch
+
+on:
+  branch_protection_rule:
+    types: [created, edited, deleted]
+  workflow_dispatch:
+    inputs:
+      test:
+        description: Send a test alert
+        type: boolean
+        default: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  alert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::065634457992:role/github-actions-release-watch
+          aws-region: eu-west-1
+
+      - name: Record and notify
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
+          ACTOR: ${{ github.actor }}
+          RULE: ${{ toJSON(github.event.rule) }}
+          CHANGES: ${{ toJSON(github.event.changes) }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          BUCKET=$(aws cloudformation describe-stacks --stack-name AdlmReleaseGate \
+            --query "Stacks[0].Outputs[?OutputKey=='AuditBucketName'].OutputValue" --output text)
+          APPROVER=$(aws ssm get-parameter --name /adlm/release-gate/approver-email --query Parameter.Value --output text 2>/dev/null || echo "")
+          [ "$APPROVER" = "-" ] && APPROVER=""
+          NOW=$(date -u +%Y-%m-%dT%H%M%SZ)
+          DAY=$(date -u +%Y/%m/%d)
+
+          jq -n --arg at "$NOW" --arg ev "$EVENT_NAME" --arg action "$ACTION" --arg actor "$ACTOR" \
+                --arg repo "$REPO" --arg run "$RUN_URL" --argjson rule "${RULE:-null}" --argjson changes "${CHANGES:-null}" \
+                '{at:$at, source:"github-actions", event:$ev, action:$action, actor:$actor, repo:$repo, run:$run, rule:$rule, changes:$changes}' > record.json
+          aws s3api put-object --bucket "$BUCKET" --key "github/$DAY/$NOW-$EVENT_NAME-$ACTION.json" \
+            --body record.json --content-type application/json --checksum-algorithm SHA256 >/dev/null
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            SUBJECT="ADLM release gate: test alert from $ACTOR"
+            TEXT="This is a test of the release gate alert. Nothing changed. Run: $RUN_URL"
+          else
+            SUBJECT="ADLM release gate: branch protection on $REPO was $ACTION by $ACTOR"
+            TEXT="$ACTOR $ACTION the branch protection rule on $REPO at $NOW UTC. This is the rule that makes every release wait for your sign-off. Details are in the locked audit log and in this run: $RUN_URL"
+          fi
+
+          TO=$(jq -cn --arg a "$APPROVER" '[$a, "admin@adlmstudio.net"] | map(select(length>0)) | unique')
+          jq -n --argjson to "$TO" --arg s "$SUBJECT" --arg t "$TEXT" \
+            '{FromEmailAddress:"ADLM Studio <notifications@adlmstudio.net>", Destination:{ToAddresses:$to},
+              Content:{Simple:{Subject:{Data:$s}, Body:{Text:{Data:$t}}}}}' > mail.json
+          # SES only. If SES refuses, the job fails red and says why; there is no fallback.
+          aws sesv2 send-email --cli-input-json file://mail.json
