@@ -76,8 +76,13 @@ export async function boqFill({ tenantId, product, rows, candidates }) {
   // cache lookup and the key covers exactly what the model will see.
   const prepared = normRows.map((r, i) => {
     const continuesFrom = isElliptical(r.description) ? r.continuesFrom || anchorDescription(normRows, i) : null;
-    const context = [r.section, ...r.headings, continuesFrom, r.description].filter(Boolean).join(" ");
-    return { ...r, continuesFrom, shortlist: shortlist(r.unit, context, groups) };
+    // The item's own words decide WHICH work it is; its section and headings only
+    // rank the candidates that already share one. Without that split, a QUIV line
+    // tagged "Services" reached every row under "SERVICES INSTALLATIONS", and a
+    // toilet roll holder was answered with the WC-suite count.
+    const own = [continuesFrom, r.description].filter(Boolean).join(" ");
+    const context = [r.section, ...r.headings].filter(Boolean).join(" ");
+    return { ...r, continuesFrom, shortlist: shortlist(r.unit, own, context, groups) };
   });
 
   return runFeature({
@@ -191,11 +196,21 @@ function groupCandidates(cands) {
   }));
 }
 
-function shortlist(rowUnit, context, groups) {
-  const rowWords = words(context);
+function shortlist(rowUnit, own, context, groups) {
+  const ownWords = words(own);
+  const contextWords = words(context);
   return groups
     .filter((g) => convertFactor(g.unit, rowUnit) != null)
-    .map((g) => ({ id: g.id, score: overlap(rowWords, words(`${g.description} ${g.type || ""}`)) }))
+    .map((g) => {
+      // Only the candidate's DESCRIPTION may earn it a place. Its section tag used to
+      // count too, so a QUIV line tagged "Services" reached every row under
+      // "SERVICES INSTALLATIONS" and a toilet roll holder was answered with the
+      // WC-suite count. The heading trail still matches — a bill line reads
+      // "230mm thick; stretcher bond" under "Sandcrete hollow blockwork", and only
+      // the heading says it is blockwork — but the item's own words count for more.
+      const gWords = words(g.description);
+      return { id: g.id, score: overlap(ownWords, gWords) * 4 + overlap(contextWords, gWords) };
+    })
     .filter((s) => s.score > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, SHORTLIST_PER_ROW)
@@ -239,9 +254,20 @@ const ABBREVIATIONS = {
   wc: ["water", "closet"],
   whb: ["wash", "hand", "basin"],
 };
+// A bill says "level and compact bottom of excavations" where the takeoff says
+// "Formation Preparation + Compaction": same word, different ending. Words of five
+// letters or more match when one starts with the other, so compact/compaction and
+// excavate/excavation count — while numbers stay exact, because 225mm is not 150mm.
 function overlap(a, b) {
   let n = 0;
-  for (const w of a) if (b.has(w)) n += /\d/.test(w) ? 2 : 1;
+  for (const w of a) {
+    if (b.has(w)) { n += /\d/.test(w) ? 2 : 1; continue; }
+    if (/\d/.test(w) || w.length < 5) continue;
+    for (const x of b) {
+      if (x.length < 5 || /\d/.test(x)) continue;
+      if (w.startsWith(x) || x.startsWith(w)) { n += 1; break; }
+    }
+  }
   return n;
 }
 const STOPWORDS = new Set([
