@@ -42,7 +42,14 @@ export async function billFeedback({ tenantId, decisions }) {
     return { ok: true, result: { recorded: 0, accepted: 0, rejected: 0, profileRevision: 0 } };
   }
 
-  const profile = await recordExamples(tenantId, { examples });
+  let profile;
+  try {
+    profile = await recordExamples(tenantId, { examples });
+  } catch (err) {
+    // Logged, not thrown: see "must not fail the user's Apply" above.
+    console.error("[billFeedback] profile write failed:", err.message);
+    return { ok: true, result: { recorded: 0, accepted: 0, rejected: 0, profileRevision: 0 } };
+  }
 
   return {
     ok: true,
