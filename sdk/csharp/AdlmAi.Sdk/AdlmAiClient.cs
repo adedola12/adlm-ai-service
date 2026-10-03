@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Text;
@@ -38,14 +39,33 @@ namespace AdlmAi
 
         // ── Feature surface (same as the TypeScript SDK) ────────────────────
 
+        /// <summary>
+        /// Assembles a unit-rate build-up for a work item.
+        ///
+        /// <paramref name="libraryItems"/> is optional and carries the caller's
+        /// OWN library rows — see <see cref="LibraryItemRef"/> for why. Passing
+        /// them lets the model name components the way the caller already holds
+        /// them, so the caller's lookup matches instead of saving a near-
+        /// duplicate. Omitting them changes nothing about the answer's shape;
+        /// the request is cached on its content, so callers that send a library
+        /// and callers that do not do not share a cache entry.
+        /// </summary>
         public Task<AiResult<RateBuildup>> RateBuildupAsync(
             string description, string zone = null, string unit = null,
+            IEnumerable<LibraryItemRef> libraryItems = null,
             IProgress<string> progress = null, CancellationToken ct = default)
         {
-            return PostAsync<RateBuildup>(
-                "/api/ai/rate-buildup",
-                new Dictionary<string, object> { { "description", description }, { "zone", zone }, { "unit", unit } },
-                progress, ct);
+            var body = new Dictionary<string, object>
+            {
+                { "description", description }, { "zone", zone }, { "unit", unit },
+            };
+
+            // Absent rather than null when there is nothing to send, so the
+            // cache key for "no library" matches older clients exactly.
+            var items = libraryItems?.Where(i => !string.IsNullOrWhiteSpace(i?.Name)).ToList();
+            if (items != null && items.Count > 0) body["libraryItems"] = items;
+
+            return PostAsync<RateBuildup>("/api/ai/rate-buildup", body, progress, ct);
         }
 
         public Task<AiResult<BoqCheckResult>> BoqCheckAsync(

@@ -7,6 +7,13 @@ Globals:
     Timeout: 120
     MemorySize: 1024
     Runtime: nodejs20.x
+  # One line per request in ApiAccessLog: route, status, timing and the gateway's
+  # own error, so a refused call (401 expired sign-in, 403 no active subscription,
+  # 400 bad input) can be told apart. No IP address or user agent is logged.
+  HttpApi:
+    AccessLogSettings:
+      DestinationArn: !GetAtt ApiAccessLog.Arn
+      Format: '{"requestId":"$context.requestId","time":"$context.requestTime","method":"$context.httpMethod","route":"$context.routeKey","path":"$context.path","status":"$context.status","latencyMs":"$context.responseLatency","integrationStatus":"$context.integrationStatus","integrationError":"$context.integrationErrorMessage","error":"$context.error.message"}'
 
 Parameters:
   MongoUri:
@@ -110,6 +117,12 @@ Resources:
           Properties:
             Path: /{proxy+}
             Method: ANY
+
+  ApiAccessLog:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/apigateway/adlm-ai-service-access
+      RetentionInDays: 30
 
   AlarmTopic:
     Type: AWS::SNS::Topic

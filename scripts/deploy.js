@@ -60,7 +60,9 @@ try {
   const out = ((r.stdout || "") + (r.stderr || "")).split(/\r?\n/);
   const interesting = out.filter((l) => /Successfully|Error|Failed|ROLLBACK|CREATE_COMPLETE|UPDATE_COMPLETE/i.test(l));
   console.log(interesting.join("\n") || out.slice(-10).join("\n"));
-  process.exit(r.status ?? 1);
+  // exitCode, not process.exit(): exit() ends the process before `finally` runs, which left
+  // samconfig.toml, with every secret in it, on disk after each deploy.
+  process.exitCode = r.status ?? 1;
 } finally {
   unlinkSync("samconfig.toml");
 }

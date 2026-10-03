@@ -59,7 +59,7 @@ export function houseStyleBlock(profile) {
     }
   }
 
-  const units = Object.entries(profile.unitConventions || {}).slice(0, 20);
+  const units = unitEntries(profile.unitConventions).slice(0, 20);
   if (units.length) {
     lines.push("", "Units this firm bills these in:");
     for (const [keyword, unit] of units) lines.push(`- ${keyword}: ${unit}`);
@@ -103,7 +103,7 @@ export async function recordExamples(tenantId, { examples = [], sectionOrder = [
     new TenantQsProfile({ tenantId, examples: [], sectionOrder: [], rejectedPhrases: [] });
 
   const rejected = new Set(profile.rejectedPhrases || []);
-  const unitConventions = new Map(Object.entries(profile.unitConventions || {}));
+  const unitConventions = new Map(unitEntries(profile.unitConventions));
   let kept = profile.examples || [];
 
   for (const raw of examples) {
@@ -142,7 +142,9 @@ export async function recordExamples(tenantId, { examples = [], sectionOrder = [
 
   profile.examples = kept.slice(0, MAX_EXAMPLES);
   profile.rejectedPhrases = [...rejected].slice(-MAX_REJECTED);
-  profile.unitConventions = unitConventions;
+  // A plain object, not the Map: Mongoose casts an object's keys into its own
+  // Map type cleanly.
+  profile.unitConventions = Object.fromEntries(unitConventions);
 
   if (sectionOrder.length) {
     profile.sectionOrder = sectionOrder
@@ -155,6 +157,17 @@ export async function recordExamples(tenantId, { examples = [], sectionOrder = [
   profile.updatedAt = new Date();
   await profile.save();
   return profile;
+}
+
+// unitConventions is a Mongoose Map on a hydrated profile and a plain object on
+// a .lean() one. Object.entries() on the Mongoose Map returns its internals
+// ($__parent, $__path, $__schemaType), not its entries. Writing those back
+// failed every profile save with "Cast to Map failed" (27 Sep 2026) and 500'd
+// /api/ai/bill-feedback. Always read it through here.
+function unitEntries(value) {
+  if (!value) return [];
+  const entries = value instanceof Map ? [...value.entries()] : Object.entries(value);
+  return entries.filter(([k, v]) => k && typeof v === "string");
 }
 
 // First meaningful word of a description — "Blockwork in 225mm..." -> "blockwork".

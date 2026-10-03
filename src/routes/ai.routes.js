@@ -7,20 +7,69 @@ import { catalogueExtract } from "../services/catalogueService.js";
 import { takeoffCommand } from "../services/takeoffCommandService.js";
 import { budgetMatch } from "../services/budgetMatchService.js";
 import { billCleanup } from "../services/billCleanupService.js";
+import { breakdownFill } from "../services/breakdownFillService.js";
+import { boqFill } from "../services/boqFillService.js";
 import { billAsk } from "../services/billAskService.js";
 import { billFeedback } from "../services/billFeedbackService.js";
 
 const router = Router();
 router.use(requireAiEntitlement);
 
+// The caller's own library rows, optional. A malformed entry is dropped rather
+// than rejected: this is a naming hint, not part of the answer, so a client
+// sending a stale or half-built list must still get its build-up.
+//
+// The cap is what stops a large library turning every request into a
+// several-thousand-token prompt. Callers are meant to send their OWN additions,
+// not their whole catalogue — the service already grounds on the master price
+// lists, so master rows spend budget telling it what it already knows.
+const MAX_LIBRARY_ITEMS = 300;
+const MAX_LIBRARY_NAME = 160;
+
+function sanitizeLibraryItems(raw) {
+  if (!Array.isArray(raw)) return [];
+
+  const seen = new Set();
+  const out = [];
+
+  for (const item of raw) {
+    const name = String(item?.name || "").trim().slice(0, MAX_LIBRARY_NAME);
+    if (!name) continue;
+
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const kind = String(item?.kind || "").trim().toLowerCase();
+    out.push({
+      kind: kind === "labour" ? "labour" : "material",
+      name,
+      unit: String(item?.unit || "").trim().slice(0, 32) || null,
+    });
+
+    if (out.length >= MAX_LIBRARY_ITEMS) break;
+  }
+
+  return out;
+}
+
 // Controllers stay thin: validate the shape, delegate to the service.
 router.post("/rate-buildup", async (req, res, next) => {
   try {
-    const { description, zone, unit } = req.body || {};
+    const { description, zone, unit, libraryItems } = req.body || {};
     if (!description || typeof description !== "string") {
       return res.status(400).json({ error: "description is required", code: "BAD_INPUT" });
     }
-    res.json(await rateBuildup({ tenantId: req.tenantId, product: req.product, description, zone, unit }));
+    res.json(
+      await rateBuildup({
+        tenantId: req.tenantId,
+        product: req.product,
+        description,
+        zone,
+        unit,
+        libraryItems: sanitizeLibraryItems(libraryItems),
+      })
+    );
   } catch (err) {
     next(err);
   }
@@ -107,6 +156,32 @@ router.post("/bill-cleanup", async (req, res, next) => {
         specifications,
       })
     );
+  } catch (err) {
+    next(err);
+  }
+});
+
+// BoQ fill: a client's own bill, filled from the product's measured quantities.
+// The model only picks measured lines; quantities are summed in the service.
+router.post("/boq-fill", async (req, res, next) => {
+  try {
+    const { rows, candidates } = req.body || {};
+    if (!Array.isArray(rows) || !rows.length || !Array.isArray(candidates) || !candidates.length) {
+      return res.status(400).json({ error: "rows[] and candidates[] are required", code: "BAD_INPUT" });
+    }
+    res.json(await boqFill({ tenantId: req.tenantId, product: req.product, rows, candidates }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/breakdown-fill", async (req, res, next) => {
+  try {
+    const { items, zone } = req.body || {};
+    if (!Array.isArray(items) || !items.length) {
+      return res.status(400).json({ error: "items[] is required", code: "BAD_INPUT" });
+    }
+    res.json(await breakdownFill({ tenantId: req.tenantId, product: req.product, items, zone }));
   } catch (err) {
     next(err);
   }
